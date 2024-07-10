@@ -1,4 +1,4 @@
-BUILD_DIR = out
+BUILD_DIR = build
 BIN = ${BUILD_DIR}/formatexe
 
 export VCPKG_ROOT
