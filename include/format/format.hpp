@@ -4,6 +4,7 @@
 #include <array>
 #include <cstring>
 #include <initializer_list>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <tuple>
@@ -203,16 +204,26 @@ constexpr auto _substitute(const ::std::string_view fmt,
 }
 
 template <typename... ArgsType>
-constexpr auto format(const ::std::string_view fmt,
-                      ArgsType&&... args_pack) -> ::std::string {
-  FormatArgs<ArgsType...> args{::std::forward<ArgsType>(args_pack)...};
+constexpr inline auto verify_arg_count(
+    const ::std::string_view fmt,
+    [[maybe_unused]] const FormatArgs<ArgsType...>& args) -> void {
   constexpr ::std::size_t ParamCount{parameter_pack_arity<ArgsType...>()};
-
   ::std::size_t arg_count{count_placeholders(fmt)};
 
-  _substitute(fmt, args);
+  if constexpr (arg_count not_eq ParamCount) {
+    throw ::std::runtime_error("Incorrect number of arguments");
+  }
+}
 
-  return "";
+template <typename... ArgsType>
+constexpr auto format(const ::std::string_view fmt,
+                      ArgsType&&... args_pack) -> ::std::string {
+  const FormatArgs<ArgsType...> args{::std::forward<ArgsType>(args_pack)...};
+  constexpr ::std::size_t ParamCount{parameter_pack_arity<ArgsType...>()};
+
+  verify_arg_count(fmt, args);
+
+  return _substitute(fmt, args);
 }
 
 }  // namespace format
