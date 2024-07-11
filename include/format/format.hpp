@@ -218,23 +218,6 @@ class Appendable {
 };
 
 class Formatter {
-  template <typename Type>
-  struct Option {
-   public:
-    constexpr explicit Option(const Type& val) : value_(new Type(val)) {}
-    constexpr Option() = default;
-    constexpr ~Option() { delete value_; }
-
-    constexpr auto value() const noexcept -> const Type& { return *value_; }
-    constexpr auto has_value() const noexcept -> bool {
-      return value_ != nullptr;
-    }
-    constexpr auto value() noexcept -> Type& { return *value_; }
-
-   private:
-    Type* value_ = nullptr;
-  };
-
  public:
   constexpr explicit Formatter(const ::std::string_view fmt) : fmt_{fmt} {}
 
