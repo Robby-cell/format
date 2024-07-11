@@ -8,6 +8,7 @@
 #include <string>
 #include <string_view>
 #include <tuple>
+#include <type_traits>
 #include <utility>
 
 namespace format {
@@ -105,6 +106,17 @@ struct FormatArgs {
   std::tuple<Args...> args_;
 };
 
+}  // namespace format
+
+namespace std {
+template <::std::size_t Index, typename... Args>
+constexpr auto get(const format::FormatArgs<Args...>& fmt) {
+  return ::std::get<Index>(fmt.args_);
+}
+}  // namespace std
+
+namespace format {
+
 constexpr auto count_placeholders(const ::std::string_view fmt)
     -> ::std::size_t {
   ::std::size_t count{0};
@@ -200,41 +212,127 @@ class BasicAppendable {
  public:
   constexpr BasicAppendable() = default;
   virtual ~BasicAppendable() = default;
-  virtual auto append(::std::string& str) const -> void = 0;
+  virtual void append(::std::string& str) const = 0;
 };
 
 template <typename Type>
-class Appendable {
+class Appendable;
+
+template <>
+class Appendable<const char*> : public BasicAppendable {
  public:
-  constexpr explicit Appendable(const Type& val) : val_(val) {}
+  constexpr explicit Appendable(const char* val) : val_(val) {}
   constexpr Appendable() = default;
-  constexpr ~Appendable() = default;
-  virtual auto append(::std::string& str) const -> void {
+  constexpr ~Appendable() override = default;
+  void append(::std::string& str) const override { str.append(val_); }
+
+ private:
+  const char* val_;
+};
+template <>
+class Appendable<::std::string> : public BasicAppendable {
+ public:
+  constexpr explicit Appendable(const ::std::string& val) : val_(&val) {}
+  constexpr Appendable() = default;
+  constexpr ~Appendable() override = default;
+  void append(::std::string& str) const override { str.append(*val_); }
+
+ private:
+  const ::std::string* val_;
+};
+template <typename T>
+  requires(::std::is_trivial<T>::value)
+class Appendable<T> : public BasicAppendable {
+ public:
+  constexpr explicit Appendable(T val) : val_(val) {}
+  constexpr Appendable() = default;
+  constexpr ~Appendable() override = default;
+  void append(::std::string& str) const override {
     str.append(::std::to_string(val_));
   }
 
  private:
-  const Type& val_;
+  T val_;
 };
+
+template <typename Type>
+constexpr inline auto make_appendable(const Type& val) -> BasicAppendable* {
+  return new Appendable<Type>(val);
+}
+
+template <size_t Index = 0, typename... ArgsType>
+  requires(Index >= parameter_pack_arity<ArgsType...>())
+constexpr inline auto array_fill(
+    std::array<BasicAppendable*, parameter_pack_arity<ArgsType...>()>& arr,
+    const FormatArgs<ArgsType...>& args) noexcept -> void {}
+
+template <size_t Index = 0, typename... ArgsType>
+  requires(Index < parameter_pack_arity<ArgsType...>())
+constexpr inline auto array_fill(
+    std::array<BasicAppendable*, parameter_pack_arity<ArgsType...>()>& arr,
+    const FormatArgs<ArgsType...>& args) noexcept -> void {
+  arr[Index] = make_appendable(::std::get<Index>(args));
+  array_fill<Index + 1, ArgsType...>(arr, args);
+}
+
+template <typename... ArgsType>
+constexpr inline auto map_args(
+    const FormatArgs<ArgsType...>& format_args) noexcept
+    -> ::std::array<BasicAppendable*, parameter_pack_arity<ArgsType...>()> {
+  ::std::array<BasicAppendable*, parameter_pack_arity<ArgsType...>()> args{};
+
+  array_fill<0>(args, format_args);
+
+  return args;
+}
 
 class Formatter {
  public:
   constexpr explicit Formatter(const ::std::string_view fmt) : fmt_{fmt} {}
 
   template <typename... Args>
-  constexpr inline auto operator()(const FormatArgs<Args...>& args) noexcept
+  inline auto operator()(const FormatArgs<Args...>& args) noexcept
       -> ::std::string {
-    ::std::string out{estimate_size(args) + fmt_.length()};
+    ::std::string out{};
+    out.reserve(args.estimate_size() + fmt_.length());
 
-    while (true) {
-      auto span{next_span()};
-      out.append(span);
+    auto mapped_args{map_args<Args...>(args)};
+    size_t index{0};
 
-      if (not is_done()) {
-        out.append(::std::get<0>(args));
-      } else {
-        break;
+    while (not is_done()) {
+      // auto span{next_span()};
+      // out.append(span);
+
+      // if (not is_done()) {
+      //   mapped_args.at(index++)->append(out);
+      // } else {
+      //   break;
+      // }
+      switch (state) {
+        case State::Top: {
+          if (fmt_.at(0) == '{') {
+            state = State::ArgParse;
+          } else {
+            auto span{next_span()};
+            out.append(span);
+          }
+          break;
+        }
+        case State::ArgParse: {
+          mapped_args.at(index++)->append(out);
+          auto end{fmt_.find_first_of('}')};
+          if (end == ::std::string_view::npos) {
+            throw ::std::runtime_error("Missing closing brace");
+          }
+          fmt_ = fmt_.substr(end + 1);
+          state = State::Top;
+          break;
+        }
       }
+    }
+
+    for (auto& arg : mapped_args) {
+      delete arg;
     }
 
     return out;
@@ -242,13 +340,12 @@ class Formatter {
 
   constexpr inline auto next_span() noexcept -> ::std::string_view {
     auto begin{fmt_.find_first_of('{')};
-    auto end{fmt_.find_first_of('}')};
 
-    if (begin == ::std::string_view::npos or end == ::std::string_view::npos) {
+    if (begin == ::std::string_view::npos) {
       return fmt_;
     }
     ::std::string_view next{fmt_.substr(0, begin)};
-    fmt_ = fmt_.substr(end + 1);
+    fmt_ = fmt_.substr(begin);
 
     return next;
   }
@@ -259,6 +356,7 @@ class Formatter {
 
  private:
   ::std::string_view fmt_;
+  enum class State { Top, ArgParse } state = State::Top;
 };
 
 template <typename... ArgsType>
@@ -268,14 +366,15 @@ constexpr inline auto verify_arg_count(
   constexpr ::std::size_t ParamCount{parameter_pack_arity<ArgsType...>()};
   ::std::size_t arg_count{count_placeholders(fmt)};
 
-  if constexpr (arg_count not_eq ParamCount) {
-    throw ::std::runtime_error("Incorrect number of arguments");
-  }
+  // TODO : FIX THIS
+  // if (arg_count not_eq ParamCount) {
+  //   throw ::std::runtime_error("Incorrect number of arguments");
+  // }
 }
 
 template <typename... ArgsType>
 constexpr auto format(const ::std::string_view fmt,
-                      ArgsType&&... args_pack) -> ::std::string {
+                      ArgsType... args_pack) -> ::std::string {
   const FormatArgs<ArgsType...> args{::std::forward<ArgsType>(args_pack)...};
   constexpr ::std::size_t ParamCount{parameter_pack_arity<ArgsType...>()};
 
@@ -285,12 +384,5 @@ constexpr auto format(const ::std::string_view fmt,
 }
 
 }  // namespace format
-
-namespace std {
-template <::std::size_t Index, typename... Args>
-constexpr auto get(const format::FormatArgs<Args...>& fmt) {
-  return ::std::get<Index>(fmt.args_);
-}
-}  // namespace std
 
 #endif  // FORMAT_FORMAT_HPP_
