@@ -135,9 +135,9 @@ constexpr auto count_placeholders(const ::std::string_view fmt)
 
 struct ReplacementSpan {
  public:
-  constexpr auto begin() -> ::std::size_t { return begin_; }
-  constexpr auto end() -> ::std::size_t { return end_; }
-  constexpr auto span() -> ::std::size_t { return end_ - begin_; }
+  constexpr auto begin() const -> ::std::size_t { return begin_; }
+  constexpr auto end() const -> ::std::size_t { return end_; }
+  constexpr auto span() const -> ::std::size_t { return end_ - begin_; }
 
   constexpr auto operator=(const ReplacementSpan& rhs) -> ReplacementSpan& =
                                                               default;
@@ -146,6 +146,8 @@ struct ReplacementSpan {
   constexpr ReplacementSpan(::std::size_t begin, ::std::size_t end)
       : begin_(begin), end_(end) {}
   constexpr ReplacementSpan() = default;
+  constexpr ReplacementSpan(const ReplacementSpan&) = default;
+  constexpr ReplacementSpan(ReplacementSpan&&) = default;
 
  private:
   ::std::size_t begin_;
@@ -194,14 +196,87 @@ constexpr auto estimate_space(const FormatArgs<ArgsType...> args)
   return args.estimate_size();
 }
 
-template <typename... ArgsType>
-constexpr auto _substitute(const ::std::string_view fmt,
-                           const FormatArgs<ArgsType...>& args)
-    -> ::std::string {
-  ::std::string out{estimate_space(args) + fmt.length()};
+class BasicAppendable {
+ public:
+  constexpr BasicAppendable() = default;
+  virtual ~BasicAppendable() = default;
+  virtual auto append(::std::string& str) const -> void = 0;
+};
 
-  return out;
-}
+template <typename Type>
+class Appendable {
+ public:
+  constexpr explicit Appendable(const Type& val) : val_(val) {}
+  constexpr Appendable() = default;
+  constexpr ~Appendable() = default;
+  virtual auto append(::std::string& str) const -> void {
+    str.append(::std::to_string(val_));
+  }
+
+ private:
+  const Type& val_;
+};
+
+class Formatter {
+  template <typename Type>
+  struct Option {
+   public:
+    constexpr explicit Option(const Type& val) : value_(new Type(val)) {}
+    constexpr Option() = default;
+    constexpr ~Option() { delete value_; }
+
+    constexpr auto value() const noexcept -> const Type& { return *value_; }
+    constexpr auto has_value() const noexcept -> bool {
+      return value_ != nullptr;
+    }
+    constexpr auto value() noexcept -> Type& { return *value_; }
+
+   private:
+    Type* value_ = nullptr;
+  };
+
+ public:
+  constexpr explicit Formatter(const ::std::string_view fmt) : fmt_{fmt} {}
+
+  template <typename... Args>
+  constexpr inline auto operator()(const FormatArgs<Args...>& args) noexcept
+      -> ::std::string {
+    ::std::string out{estimate_size(args) + fmt_.length()};
+
+    while (true) {
+      auto span{next_span()};
+      out.append(span);
+
+      if (not is_done()) {
+        out.append(::std::get<0>(args));
+      } else {
+        break;
+      }
+    }
+
+    return out;
+  }
+
+  constexpr inline auto next_span() noexcept -> ::std::string_view {
+    auto begin{fmt_.find_first_of('{')};
+    auto end{fmt_.find_first_of('}')};
+
+    if (begin == ::std::string_view::npos or end == ::std::string_view::npos) {
+      return fmt_;
+    }
+    ::std::string_view next{fmt_.substr(0, begin)};
+    fmt_ = fmt_.substr(end + 1);
+
+    return next;
+  }
+
+  constexpr inline auto is_done() const noexcept -> bool {
+    return fmt_.empty();
+  }
+
+ private:
+  ::std::string_view fmt_;
+};
 
 template <typename... ArgsType>
 constexpr inline auto verify_arg_count(
@@ -223,7 +298,7 @@ constexpr auto format(const ::std::string_view fmt,
 
   verify_arg_count(fmt, args);
 
-  return _substitute(fmt, args);
+  return Formatter{fmt}(args);
 }
 
 }  // namespace format
