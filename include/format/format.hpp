@@ -184,7 +184,7 @@ class FormatSpecifier {
       Fill,
       SizeBegin,
       Size,
-      End
+      End,
     } state{State::Position};
 
     const char* current{fmt.data()};
@@ -195,7 +195,7 @@ class FormatSpecifier {
     const char* position_end{current};
     char fill_intermediate{0};
 
-    while (current not_eq end) {
+    while (current < end) {
       switch (state) {
         case State::Position: {
           if (*current == ':') {
@@ -231,10 +231,11 @@ class FormatSpecifier {
             size_end = current;
             state = State::End;
           }
+          break;
         }
         case State::End: {
-          // throw ::std::runtime_error(
-          //     "Unexpected additional characters found in format specifier");
+          throw ::std::runtime_error(
+              "Unexpected additional characters found in format specifier");
         }
       }
       ++current;
@@ -307,8 +308,8 @@ class FormatSpecifier {
   }
 
  public:
-  ::std::size_t position_{0};
   ::std::size_t specifiers_{0};
+  ::std::size_t position_{0};
   ::std::size_t size_{0};
   bool has_position_{false};
   bool has_size_{false};
