@@ -8,6 +8,9 @@ struct Foo {
   explicit Foo(int x) {}
 };
 
+constexpr inline auto FmtStr{
+    format::FormatString<int, int>("Hello world, {}, {}")};
+
 auto main() -> int try {
   FormatArgs<const char*, int, int, Foo> args{"hello world", 42, 42, Foo(42)};
 
