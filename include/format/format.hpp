@@ -3,12 +3,15 @@
 
 #include <array>
 #include <cstring>
+#include <new>
+#include <numeric>
 #include <stdexcept>
 #include <string>
 #include <string_view>
 #include <tuple>
 #include <type_traits>
 #include <utility>
+#include <vector>
 
 namespace format {
 
@@ -179,7 +182,12 @@ class FormatSpecifier {
 
  private:
   constexpr inline auto parse_specifier(const ::std::string_view fmt) -> void {
+    if (fmt.length() == 0) {
+      return;
+    }
+
     enum class State {
+      Begin,
       Position,
       Fill,
       SizeBegin,
@@ -192,11 +200,18 @@ class FormatSpecifier {
 
     const char* size_begin{nullptr};
     const char* size_end{nullptr};
-    const char* position_end{current};
+    const char* position_end{nullptr};
     char fill_intermediate{0};
 
     while (current < end) {
       switch (state) {
+        case State::Begin: {
+          if (*current == ':') {
+            state = State::Fill;
+          } else {
+            state = State::Position;
+          }
+        }
         case State::Position: {
           if (*current == ':') {
             position_end = current;
@@ -240,8 +255,9 @@ class FormatSpecifier {
       }
       ++current;
     }
-    if (position_end) {
-      position_ = to_number(fmt.data(), position_end);
+
+    if (fmt.front() not_eq ':') {
+      position_ = to_number(fmt.data(), position_end ? position_end : end);
       has_position_ = true;
     }
 
@@ -414,6 +430,7 @@ class FormatWeave {
 template <typename... ArgsType>
 class FormatString {
   static constexpr auto Arity = parameter_pack_arity<ArgsType...>();
+  using ArgType = ::std::array<FormatSpecifier, Arity * 3>;
 
  public:
   consteval FormatString(const ::std::string_view fmt) : fmt_{fmt} {  // NOLINT
@@ -422,13 +439,12 @@ class FormatString {
   constexpr FormatString() = default;
   constexpr ~FormatString() = default;
 
-  constexpr inline auto get_arg_specifiers() const noexcept
-      -> const ::std::array<FormatSpecifier, Arity>& {
+  constexpr inline auto get_arg_specifiers() const noexcept -> const ArgType& {
     return args_;
   }
 
  private:
-  consteval inline auto count_format_args() -> ::std::size_t {
+  constexpr inline auto count_format_args() -> ::std::size_t {
     constexpr auto npos{::std::string_view::npos};  // NOLINT
 
     const char* current{fmt_.data()};
@@ -446,6 +462,10 @@ class FormatString {
         ::std::string_view format_specifier_str{current + left + 1,
                                                 right - left - 1};
         FormatSpecifier specifier{format_specifier_str};
+        if (not specifier.has_position_) {
+          specifier.position_ = count;
+          specifier.has_position_ = true;
+        }
         args_.at(count++) = specifier;
 
         current += right + 1;
@@ -456,12 +476,38 @@ class FormatString {
     return count;
   }
 
-  consteval inline auto verify_arg_count() -> void {
+  constexpr inline auto verify_arg_count() -> void {
     [[maybe_unused]] auto count{count_format_args()};
+
+    auto max{::std::accumulate(
+        args_.begin(), args_.end(), 0ULL,
+        [](auto a, auto b) { return a > b.position_ ? a : b.position_; })};
+
+    if (count < Arity or max >= Arity) {
+      _throw_format_error("Too few arguments");
+    }
+
+    for (const auto& item : args_) {
+      if (item.position_ > max or item.position_ >= Arity) {
+        _throw_format_error("Not enough arguments");
+      }
+    }
+    for (::std::size_t i = 0; i < max; ++i) {
+      bool found{false};
+      for (const auto& item : args_) {
+        if (item.position_ == i) {
+          found = true;
+          break;
+        }
+      }
+      if (not found) {
+        _throw_format_error("All positions must be used.");
+      }
+    }
   }
 
   ::std::string_view fmt_;
-  ::std::array<FormatSpecifier, Arity> args_;
+  ArgType args_{};
 };
 
 template <typename... ArgsType>
@@ -472,7 +518,7 @@ constexpr auto estimate_space(const FormatArgs<ArgsType...> args)
 
 template <typename Type>
 constexpr inline auto make_appendable(const Type& val) -> BasicAppendable* {
-  return new Appendable<Type>(val);
+  return new (::std::nothrow) Appendable<Type>(val);
 }
 
 template <size_t Index = 0, typename... ArgsType>
