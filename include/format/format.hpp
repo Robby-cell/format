@@ -13,6 +13,13 @@
 
 namespace format {
 
+class FormatError : public ::std::runtime_error {
+  using ::std::runtime_error::runtime_error;
+};
+[[noreturn]] inline void _throw_format_error(const char* const what) {
+  throw FormatError(what);
+}
+
 template <typename, typename... Args>
 struct CountParameterPack {
   static constexpr ::std::size_t Value{1 + CountParameterPack<Args...>::Value};
@@ -144,6 +151,103 @@ constexpr auto count_placeholders(const ::std::string_view fmt)
 
   return count;
 }
+
+class FormatSpecifier {
+ public:
+  static constexpr size_t Hex{1}, Octal{2}, Binary{3}, Float{4}, Char{5},
+      Pointer{6};
+
+  constexpr explicit FormatSpecifier(size_t position, size_t specifiers = 0ULL)
+      : position_{position}, specifiers_{specifiers} {}
+
+  /// @brief Default constructor so an array can be created without needing to
+  /// initialize all the specifiers
+  constexpr FormatSpecifier() = default;
+  constexpr ~FormatSpecifier() = default;
+
+ private:
+  size_t position_ = 0;
+  size_t specifiers_ = 0;
+};
+
+template <typename... ArgsType>
+class FormatString {
+ public:
+  consteval FormatString(const ::std::string_view fmt) : fmt_{fmt} {  // NOLINT
+    verify_arg_count();
+  }
+  constexpr FormatString() = default;
+  constexpr ~FormatString() = default;
+
+ private:
+  consteval inline auto count_format_args() -> ::std::size_t {
+    enum class State {
+      Base,
+      Left,
+      Position,
+      Specifiers,
+      Right,
+    } state{State::Base};
+
+    const char* current{fmt_.data()};
+    const char* const end{fmt_.data() + fmt_.length()};
+
+    ::std::size_t count{0};
+
+    while (current not_eq end) {
+      switch (state) {
+        case State::Base: {
+          switch (*current) {
+            default: {
+              break;
+            }
+            case '{': {
+              state = State::Left;
+              break;
+            }
+            case '}': {
+              state = State::Right;
+              break;
+            }
+          }
+          break;
+        }
+        case State::Left: {
+          switch (*current) {
+            default: {
+              state = State::Position;
+              break;
+            }
+            case '}': {
+              state = State::Base;
+              break;
+            }
+          }
+          break;
+        }
+        case State::Position: {
+        }
+        case State::Specifiers: {
+        }
+        case State::Right: {
+          if (*current not_eq '}') {
+            _throw_format_error(
+                "Found a '}' without a matching '{', to have '}' in a format "
+                "string, use '}}'");
+          }
+        }
+      }
+      ++current;
+    }
+    return count;
+  }
+  consteval inline auto verify_arg_count() -> void {
+    [[maybe_unused]] auto count{count_format_args()};
+  }
+
+  ::std::string_view fmt_;
+  ::std::array<FormatSpecifier, parameter_pack_arity<ArgsType...>()> args_;
+};
 
 struct ReplacementSpan {
  public:
@@ -291,8 +395,7 @@ class Formatter {
   constexpr explicit Formatter(const ::std::string_view fmt) : fmt_{fmt} {}
 
   template <typename... Args>
-  inline auto operator()(const FormatArgs<Args...>& args) noexcept
-      -> ::std::string {
+  inline auto operator()(const FormatArgs<Args...>& args) -> ::std::string {
     ::std::string out{};
     out.reserve(args.estimate_size() + fmt_.length());
 
