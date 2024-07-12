@@ -6,14 +6,15 @@ struct Foo {
   explicit Foo(int x) {}
 };
 
-constexpr inline auto FmtStr{format::FormatString<int>("Hello world {0:010x}")};
-
 auto main() -> int try {
+  const auto fmt_str{format::FormatString<int, char, int, const char*>(
+      "Hello world {} {} {} {}")};
+
   auto s =
       format::format("Hello world {}, and another {} {}", 42, "word", 34.22);
   std::cout << s << '\n';
 
-  const auto& specifiers{FmtStr.get_arg_specifiers()};
+  const auto& specifiers{fmt_str.get_arg_specifiers()};
 
   for (const auto& specifier : specifiers) {
     ::std::cerr << "Specifiers: " << specifier.specifiers_
