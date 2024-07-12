@@ -3,7 +3,6 @@
 
 #include <array>
 #include <cstring>
-#include <initializer_list>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -12,6 +11,15 @@
 #include <utility>
 
 namespace format {
+
+namespace detail {
+constexpr inline auto is_alpha(const char c) -> bool {
+  return (c >= 'a' and c <= 'z') or (c >= 'A' and c <= 'Z');
+}
+constexpr inline auto is_digit(const char c) -> bool {
+  return c >= '0' and c <= '9';
+}
+}  // namespace detail
 
 class FormatError : public ::std::runtime_error {
   using ::std::runtime_error::runtime_error;
@@ -154,11 +162,15 @@ constexpr auto count_placeholders(const ::std::string_view fmt)
 
 class FormatSpecifier {
  public:
-  static constexpr size_t Hex{1}, Octal{2}, Binary{3}, Float{4}, Char{5},
-      Pointer{6};
+  static constexpr size_t Hex{1 << 0}, Octal{1 << 1}, Binary{1 << 2},
+      Float{1 << 3}, Char{1 << 4}, Pointer{1 << 5};
 
   constexpr explicit FormatSpecifier(size_t position, size_t specifiers = 0ULL)
       : position_{position}, specifiers_{specifiers} {}
+
+  constexpr explicit FormatSpecifier(const ::std::string_view fmt) {
+    parse_specifier(fmt);
+  }
 
   /// @brief Default constructor so an array can be created without needing to
   /// initialize all the specifiers
@@ -166,151 +178,142 @@ class FormatSpecifier {
   constexpr ~FormatSpecifier() = default;
 
  private:
-  size_t position_ = 0;
-  size_t specifiers_ = 0;
-};
-
-template <typename... ArgsType>
-class FormatString {
- public:
-  consteval FormatString(const ::std::string_view fmt) : fmt_{fmt} {  // NOLINT
-    verify_arg_count();
-  }
-  constexpr FormatString() = default;
-  constexpr ~FormatString() = default;
-
- private:
-  consteval inline auto count_format_args() -> ::std::size_t {
+  constexpr inline auto parse_specifier(const ::std::string_view fmt) -> void {
     enum class State {
-      Base,
-      Left,
       Position,
-      Specifiers,
-      Right,
-    } state{State::Base};
+      Fill,
+      SizeBegin,
+      Size,
+      End
+    } state{State::Position};
 
-    const char* current{fmt_.data()};
-    const char* const end{fmt_.data() + fmt_.length()};
+    const char* current{fmt.data()};
+    const char* const end{fmt.data() + fmt.length()};
 
-    ::std::size_t count{0};
+    const char* size_begin{nullptr};
+    const char* size_end{nullptr};
+    const char* position_end{current};
+    char fill_intermediate{0};
 
     while (current not_eq end) {
       switch (state) {
-        case State::Base: {
-          switch (*current) {
-            default: {
-              break;
-            }
-            case '{': {
-              state = State::Left;
-              break;
-            }
-            case '}': {
-              state = State::Right;
-              break;
-            }
-          }
-          break;
-        }
-        case State::Left: {
-          switch (*current) {
-            default: {
-              state = State::Position;
-              break;
-            }
-            case '}': {
-              state = State::Base;
-              break;
-            }
-          }
-          break;
-        }
         case State::Position: {
-        }
-        case State::Specifiers: {
-        }
-        case State::Right: {
-          if (*current not_eq '}') {
-            _throw_format_error(
-                "Found a '}' without a matching '{', to have '}' in a format "
-                "string, use '}}'");
+          if (*current == ':') {
+            position_end = current;
+            state = State::Fill;
+          } else if (not detail::is_digit(*current)) {
+            _throw_format_error("Invalid character in the positional argument");
           }
+          break;
+        }
+        case State::Fill: {
+          if (detail::is_alpha(*current)) {
+            fill_intermediate = *current;
+            state = State::SizeBegin;
+          } else if (*current == '0') {
+            fill_intermediate = *current;
+            state = State::SizeBegin;
+          } else if (detail::is_digit(*current)) {
+            size_begin = current;
+            state = State::Size;
+          } else {
+            _throw_format_error("Invalid character after ':'");
+          }
+          break;
+        }
+        case State::SizeBegin: {
+          size_begin = current;
+          state = State::Size;
+          break;
+        }
+        case State::Size: {
+          if (not detail::is_digit(*current)) {
+            size_end = current;
+            state = State::End;
+          }
+        }
+        case State::End: {
+          // throw ::std::runtime_error(
+          //     "Unexpected additional characters found in format specifier");
         }
       }
       ++current;
     }
-    return count;
+    if (position_end) {
+      position_ = to_number(fmt.data(), position_end);
+      has_position_ = true;
+    }
+
+    if (size_begin) {
+      size_ = to_number(size_begin, size_end ? size_end : current);
+      has_size_ = true;
+    }
+
+    if (state not_eq State::SizeBegin) {
+      fill_ = fill_intermediate;
+    }
+
+    if (state == State::End) {
+      char const layout{fmt.back()};
+      switch (layout) {
+        default: {
+          _throw_format_error("Invalid layout specifier");
+        }
+        case 'X':
+        case 'x': {
+          specifiers_ |= FormatSpecifier::Hex;
+          break;
+        }
+        case 'O':
+        case 'o': {
+          specifiers_ |= FormatSpecifier::Octal;
+          break;
+        }
+        case 'B':
+        case 'b': {
+          specifiers_ |= FormatSpecifier::Binary;
+          break;
+        }
+        case 'F':
+        case 'f': {
+          specifiers_ |= FormatSpecifier::Float;
+          break;
+        }
+        case 'C':
+        case 'c': {
+          specifiers_ |= FormatSpecifier::Char;
+          break;
+        }
+        case 'P':
+        case 'p': {
+          specifiers_ |= FormatSpecifier::Pointer;
+          break;
+        }
+      }
+    }
   }
-  consteval inline auto verify_arg_count() -> void {
-    [[maybe_unused]] auto count{count_format_args()};
+  static constexpr inline auto to_number(const char* ptr, const char* const end)
+      -> ::std::size_t {
+    ::std::size_t value{0};
+    while (ptr not_eq end) {
+      if (*ptr < '0' or *ptr > '9') {
+        _throw_format_error("Invalid character in number");
+      }
+      value *= 10;
+      value += *ptr - '0';
+      ++ptr;
+    }
+    return value;
   }
 
-  ::std::string_view fmt_;
-  ::std::array<FormatSpecifier, parameter_pack_arity<ArgsType...>()> args_;
-};
-
-struct ReplacementSpan {
  public:
-  constexpr auto begin() const -> ::std::size_t { return begin_; }
-  constexpr auto end() const -> ::std::size_t { return end_; }
-  constexpr auto span() const -> ::std::size_t { return end_ - begin_; }
-
-  constexpr auto operator=(const ReplacementSpan& rhs) -> ReplacementSpan& =
-                                                              default;
-  constexpr auto operator=(ReplacementSpan&& rhs) -> ReplacementSpan& = default;
-
-  constexpr ReplacementSpan(::std::size_t begin, ::std::size_t end)
-      : begin_(begin), end_(end) {}
-  constexpr ReplacementSpan() = default;
-  constexpr ReplacementSpan(const ReplacementSpan&) = default;
-  constexpr ReplacementSpan(ReplacementSpan&&) = default;
-
- private:
-  ::std::size_t begin_;
-  ::std::size_t end_;
+  ::std::size_t position_{0};
+  ::std::size_t specifiers_{0};
+  ::std::size_t size_{0};
+  bool has_position_{false};
+  bool has_size_{false};
+  char fill_{' '};
 };
-
-template <::std::size_t Count>
-struct ReplacementList {
- public:
-  template <::std::size_t Index>
-  constexpr auto get() const noexcept {
-    static_assert(Index < Count, "Index must be less than Count");
-
-    return replacements_[Index];
-  }
-
-  constexpr ReplacementList() : replacements_{} {}
-
-  constexpr ReplacementList(::std::initializer_list<ReplacementSpan> args)
-      : replacements_(
-            ::std::forward<::std::initializer_list<ReplacementSpan>>(args)) {}
-
-  template <::std::size_t Index>
-  constexpr auto emplace(ReplacementSpan arg) -> void {
-    static_assert(Index < Count, "Index must be less than Count");
-
-    replacements_[Index] = arg;
-  }
-
-  constexpr auto operator[](::std::size_t index) -> ReplacementSpan& {
-    return replacements_[index];
-  }
-
-  constexpr auto operator[](::std::size_t index) const
-      -> const ReplacementSpan& {
-    return replacements_[index];
-  }
-
- private:
-  std::array<ReplacementSpan, Count> replacements_;
-};
-
-template <typename... ArgsType>
-constexpr auto estimate_space(const FormatArgs<ArgsType...> args)
-    -> ::std::size_t {
-  return args.estimate_size();
-}
 
 class BasicAppendable {
  public:
@@ -358,6 +361,113 @@ class Appendable<T> : public BasicAppendable {
  private:
   T val_;
 };
+
+class FormatWeave {
+ public:
+  constexpr explicit FormatWeave(const ::std::string_view fmt)
+      : kind_{Kind::FormatString}, payload_{.format_string_ = fmt} {}
+
+  constexpr explicit FormatWeave(const BasicAppendable* const appendable)
+      : kind_{Kind::Appendable}, payload_{.appendable_ = appendable} {}
+
+  constexpr inline auto append(::std::string& str) const -> void {
+    switch (kind_) {
+      case Kind::FormatString: {
+        str.append(payload_.format_string_);
+        break;
+      }
+      case Kind::Appendable: {
+        if (payload_.appendable_) {
+          payload_.appendable_->append(str);
+        }
+        break;
+      }
+    }
+  }
+
+  constexpr ~FormatWeave() = default;
+
+ private:
+  enum class Kind { FormatString, Appendable };
+
+  constexpr inline auto set_format_string(const ::std::string_view fmt)
+      -> void {
+    kind_ = Kind::FormatString;
+    payload_.format_string_ = fmt;
+  }
+  constexpr inline auto set_appendable(const BasicAppendable* const appendable)
+      -> void {
+    kind_ = Kind::Appendable;
+    payload_.appendable_ = appendable;
+  }
+
+  struct {
+    Kind kind_;
+    union {
+      ::std::string_view format_string_;
+      const BasicAppendable* appendable_;
+    } payload_;
+  };
+};
+
+template <typename... ArgsType>
+class FormatString {
+  static constexpr auto Arity = parameter_pack_arity<ArgsType...>();
+
+ public:
+  consteval FormatString(const ::std::string_view fmt) : fmt_{fmt} {  // NOLINT
+    verify_arg_count();
+  }
+  constexpr FormatString() = default;
+  constexpr ~FormatString() = default;
+
+  constexpr inline auto get_arg_specifiers() const noexcept
+      -> const ::std::array<FormatSpecifier, Arity>& {
+    return args_;
+  }
+
+ private:
+  consteval inline auto count_format_args() -> ::std::size_t {
+    constexpr auto npos{::std::string_view::npos};  // NOLINT
+
+    const char* current{fmt_.data()};
+    const char* const end{fmt_.data() + fmt_.length()};
+
+    ::std::size_t count{0};
+
+    while (current not_eq end) {
+      auto left{::std::string_view{current, end}.find_first_of('{')};
+      if (left not_eq npos) {
+        auto right{::std::string_view{current, end}.find_first_of('}')};
+        if (right == npos) {
+          _throw_format_error("Missing closing brace");
+        }
+        ::std::string_view format_specifier_str{current + left + 1,
+                                                right - left - 1};
+        FormatSpecifier specifier{format_specifier_str};
+        args_.at(count++) = specifier;
+
+        current += right + 1;
+      } else {
+        current = end;
+      }
+    }
+    return count;
+  }
+
+  consteval inline auto verify_arg_count() -> void {
+    [[maybe_unused]] auto count{count_format_args()};
+  }
+
+  ::std::string_view fmt_;
+  ::std::array<FormatSpecifier, Arity> args_;
+};
+
+template <typename... ArgsType>
+constexpr auto estimate_space(const FormatArgs<ArgsType...> args)
+    -> ::std::size_t {
+  return args.estimate_size();
+}
 
 template <typename Type>
 constexpr inline auto make_appendable(const Type& val) -> BasicAppendable* {
