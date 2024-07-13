@@ -6,11 +6,12 @@ struct Foo {
   explicit Foo(int x) {}
 };
 
-auto main() -> int try {
-  auto s = format::format("Hello world {1} {0}", 42, "another one");
-  std::cout << s << '\n';
+using fmt::format;
 
-  return 0;
+auto main() -> int try {
+  const auto s = format("Hello {}", 32);
+  auto t = format("{}", 42);
+  std::cout << s << '\n';
 } catch (const std::exception& e) {
   std::cerr << e.what() << '\n';
   return 1;
