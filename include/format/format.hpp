@@ -2,6 +2,7 @@
 #define FORMAT_FORMAT_HPP_
 
 #include <array>
+#include <cstdint>
 #include <numeric>
 #include <stdexcept>
 #include <string>
