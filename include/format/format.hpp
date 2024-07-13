@@ -2,17 +2,30 @@
 #define FORMAT_FORMAT_HPP_
 
 #include <array>
-#include <cstring>
-#include <new>
 #include <numeric>
 #include <stdexcept>
 #include <string>
 #include <string_view>
 #include <tuple>
-#include <type_traits>
-#include <utility>
 
-namespace format {
+namespace fmt {
+
+// NOLINTBEGIN
+using u8 = ::std::uint8_t;
+using u16 = ::std::uint16_t;
+using u32 = ::std::uint32_t;
+using u64 = ::std::uint64_t;
+using usize = ::std::size_t;
+
+using i8 = ::std::int8_t;
+using i16 = ::std::int16_t;
+using i32 = ::std::int32_t;
+using i64 = ::std::int64_t;
+using isize = ::std::ptrdiff_t;
+
+using f32 = float;
+using f64 = double;
+// NOLINTEND
 
 namespace detail {
 constexpr inline auto is_alpha(const char c) -> bool {
@@ -20,6 +33,16 @@ constexpr inline auto is_alpha(const char c) -> bool {
 }
 constexpr inline auto is_digit(const char c) -> bool {
   return c >= '0' and c <= '9';
+}
+
+static constexpr const char* const HexDigits{"0123456789ABCDEF"};
+template <typename Type>
+auto to_hex(Type n, size_t hex_len = sizeof(Type) << 1) -> ::std::string {
+  std::string result(hex_len, '0');
+  for (size_t i = 0, j = (hex_len - 1) * 4; i < hex_len; ++i, j -= 4) {
+    result[i] = HexDigits[(n >> j) & 0x0f];
+  }
+  return result;
 }
 }  // namespace detail
 
@@ -86,13 +109,13 @@ template <size_t Index = 0, typename... Args>
 constexpr auto _impl_tuple_fold_size(const ::std::tuple<Args...>& t)
     -> ::std::size_t {
   return estimate_size(::std::get<Index>(t)) +
-         ::format::_impl_tuple_fold_size<Index + 1, Args...>(t);
+         ::fmt::_impl_tuple_fold_size<Index + 1, Args...>(t);
 }
 
 template <typename... Args>
 constexpr auto tuple_fold_size(const ::std::tuple<Args...>& t)
     -> ::std::size_t {
-  return ::format::_impl_tuple_fold_size<0, Args...>(t);
+  return ::fmt::_impl_tuple_fold_size<0, Args...>(t);
 }
 
 template <typename... Args>
@@ -101,7 +124,7 @@ struct FormatArgs {
       : args_{::std::make_tuple<Args...>(::std::forward<Args>(args)...)} {}
 
   constexpr inline auto estimate_size() const noexcept -> ::std::size_t {
-    return ::format::tuple_fold_size<Args...>(args_);
+    return ::fmt::tuple_fold_size<Args...>(args_);
   }
 
   template <size_t Index>
@@ -123,44 +146,16 @@ struct FormatArgs {
   std::tuple<Args...> args_;
 };
 
-}  // namespace format
+}  // namespace fmt
 
 namespace std {
 template <::std::size_t Index, typename... Args>
-constexpr auto get(const format::FormatArgs<Args...>& fmt) {
+constexpr auto get(const ::fmt::FormatArgs<Args...>& fmt) {
   return ::std::get<Index>(fmt.args_);
 }
 }  // namespace std
 
-namespace format {
-
-constexpr auto count_placeholders(const ::std::string_view fmt)
-    -> ::std::size_t {
-  ::std::size_t count{0};
-
-  enum class State { Base, Left } state;
-
-  for (::std::size_t i = 0; i < fmt.length(); ++i) {
-    switch (state) {
-      case State::Base:
-        if (fmt[i] == '{') {
-          state = State::Left;
-        }
-        break;
-      case State::Left:
-        if (fmt[i] == '}') {
-          ++count;
-          state = State::Base;
-        } else {
-          // Invalid state for a placeholder format
-          return 0;
-        }
-        break;
-    }
-  }
-
-  return count;
-}
+namespace fmt {
 
 class FormatSpecifier {
  public:
@@ -269,7 +264,7 @@ class FormatSpecifier {
       fill_ = fill_intermediate;
     }
 
-    if (state == State::End) {
+    if (state == State::End or state == State::SizeBegin) {
       char const layout{fmt.back()};
       switch (layout) {
         default: {
@@ -331,11 +326,55 @@ class FormatSpecifier {
   char fill_{' '};
 };
 
+// TODO : APPENDABLE
+
+template <typename... Types>
+struct TypeList;
+
+using UnsignedIntType = TypeList<u8, u16, u32, u64, usize>;
+using UnsignedIntNoCharType = TypeList<u16, u32, u64, usize>;
+using SignedIntType = TypeList<i8, i16, i32, i64, isize>;
+using SignedIntNoCharType = TypeList<i16, i32, i64, isize>;
+using FloatType = TypeList<f32, f64>;
+
+template <typename Type, typename...>
+constexpr inline bool IsAnyOfImpl = false;
+
+template <typename Type, typename... Args>
+constexpr inline bool IsAnyOfImpl<Type, TypeList<Args...>> =
+    (::std::is_same_v<Type, Args> or ...);
+
+template <typename Type, typename List>
+concept IsAnyOf = IsAnyOfImpl<Type, List>;
+
+template <typename Type>
+concept IsUnsignedInteger =
+    requires(Type) { requires(IsAnyOf<Type, UnsignedIntType>); };
+template <typename Type>
+concept IsUnsignedIntegerNoChar =
+    requires(Type) { requires(IsAnyOf<Type, UnsignedIntNoCharType>); };
+template <typename Type>
+concept IsSignedInteger =
+    requires(Type) { requires(IsAnyOf<Type, SignedIntType>); };
+template <typename Type>
+concept IsSignedIntegerNoChar =
+    requires(Type) { requires(IsAnyOf<Type, SignedIntNoCharType>); };
+
+template <typename Type>
+concept IsInteger = IsSignedInteger<Type> or IsUnsignedInteger<Type>;
+template <typename Type>
+concept IsIntegerNoChar =
+    IsSignedIntegerNoChar<Type> or IsUnsignedIntegerNoChar<Type>;
+
+template <typename Type>
+concept IsFloat = requires(Type) { requires(IsAnyOf<Type, FloatType>); };
+
 class BasicAppendable {
  public:
   constexpr BasicAppendable() = default;
   virtual ~BasicAppendable() = default;
-  virtual void append(::std::string& str) const = 0;
+  virtual constexpr void append(::std::string& str,
+                                const FormatSpecifier& specifier) const = 0;
 };
 
 template <typename Type>
@@ -347,7 +386,11 @@ class Appendable<const char*> : public BasicAppendable {
   constexpr explicit Appendable(const char* val) : val_(val) {}
   constexpr Appendable() = default;
   constexpr ~Appendable() override = default;
-  void append(::std::string& str) const override { str.append(val_); }
+  constexpr void append(
+      ::std::string& str,
+      [[maybe_unused]] const FormatSpecifier& specifier) const override {
+    str.append(val_);
+  }
 
  private:
   const char* val_;
@@ -358,162 +401,39 @@ class Appendable<::std::string> : public BasicAppendable {
   constexpr explicit Appendable(const ::std::string& val) : val_(&val) {}
   constexpr Appendable() = default;
   constexpr ~Appendable() override = default;
-  void append(::std::string& str) const override { str.append(*val_); }
+  constexpr void append(
+      ::std::string& str,
+      [[maybe_unused]] const FormatSpecifier& specifier) const override {
+    str.append(*val_);
+  }
 
  private:
   const ::std::string* val_;
 };
-template <typename T>
-  requires(::std::is_trivial<T>::value)
-class Appendable<T> : public BasicAppendable {
+
+template <IsIntegerNoChar Type>
+class Appendable<Type> : public BasicAppendable {
  public:
-  constexpr explicit Appendable(T val) : val_(val) {}
+  constexpr explicit Appendable(Type val) : val_(val) {}
   constexpr Appendable() = default;
   constexpr ~Appendable() override = default;
-  void append(::std::string& str) const override {
-    str.append(::std::to_string(val_));
-  }
-
- private:
-  T val_;
-};
-
-class FormatWeave {
- public:
-  constexpr explicit FormatWeave(const ::std::string_view fmt)
-      : kind_{Kind::FormatString}, payload_{.format_string_ = fmt} {}
-
-  constexpr explicit FormatWeave(const BasicAppendable* const appendable)
-      : kind_{Kind::Appendable}, payload_{.appendable_ = appendable} {}
-
-  constexpr inline auto append(::std::string& str) const -> void {
-    switch (kind_) {
-      case Kind::FormatString: {
-        str.append(payload_.format_string_);
-        break;
-      }
-      case Kind::Appendable: {
-        if (payload_.appendable_) {
-          payload_.appendable_->append(str);
-        }
-        break;
-      }
-    }
-  }
-
-  constexpr ~FormatWeave() = default;
-
- private:
-  enum class Kind { FormatString, Appendable };
-
-  constexpr inline auto set_format_string(const ::std::string_view fmt)
-      -> void {
-    kind_ = Kind::FormatString;
-    payload_.format_string_ = fmt;
-  }
-  constexpr inline auto set_appendable(const BasicAppendable* const appendable)
-      -> void {
-    kind_ = Kind::Appendable;
-    payload_.appendable_ = appendable;
-  }
-
-  struct {
-    Kind kind_;
-    union {
-      ::std::string_view format_string_;
-      const BasicAppendable* appendable_;
-    } payload_;
-  };
-};
-
-template <typename... ArgsType>
-class FormatString {
-  static constexpr auto Arity = parameter_pack_arity<ArgsType...>();
-  using ArgType = ::std::array<FormatSpecifier, Arity * 3>;
-
- public:
-  consteval FormatString(const ::std::string_view fmt) : fmt_{fmt} {  // NOLINT
-    verify_arg_count();
-  }
-  constexpr FormatString() = default;
-  constexpr ~FormatString() = default;
-
-  constexpr inline auto get_arg_specifiers() const noexcept -> const ArgType& {
-    return args_;
-  }
-
- private:
-  constexpr inline auto count_format_args() -> ::std::size_t {
-    constexpr auto npos{::std::string_view::npos};  // NOLINT
-
-    const char* current{fmt_.data()};
-    const char* const end{fmt_.data() + fmt_.length()};
-
-    ::std::size_t count{0};
-
-    while (current not_eq end) {
-      auto left{::std::string_view{current, end}.find_first_of('{')};
-      if (left not_eq npos) {
-        auto right{::std::string_view{current, end}.find_first_of('}')};
-        if (right == npos) {
-          _throw_format_error("Missing closing brace");
-        }
-        ::std::string_view format_specifier_str{current + left + 1,
-                                                right - left - 1};
-        FormatSpecifier specifier{format_specifier_str};
-        if (not specifier.has_position_) {
-          specifier.position_ = count;
-          specifier.has_position_ = true;
-        }
-        args_.at(count++) = specifier;
-
-        current += right + 1;
+  constexpr void append(
+      ::std::string& str,
+      [[maybe_unused]] const FormatSpecifier& specifier) const override {
+    if (specifier.specifiers_ & FormatSpecifier::Hex) {
+      if (specifier.has_size_) {
+        str.append(detail::to_hex(val_, specifier.size_));
       } else {
-        current = end;
+        str.append(detail::to_hex(val_));
       }
-    }
-    return count;
-  }
-
-  constexpr inline auto verify_arg_count() -> void {
-    [[maybe_unused]] auto count{count_format_args()};
-
-    auto max{::std::accumulate(
-        args_.begin(), args_.end(), 0ULL,
-        [](auto a, auto b) { return a > b.position_ ? a : b.position_; })};
-
-    if (count < Arity or max >= Arity) {
-      _throw_format_error("Too few arguments");
-    }
-
-    for (const auto& item : args_) {
-      if (item.position_ > max or item.position_ >= Arity) {
-        _throw_format_error("Not enough arguments");
-      }
-    }
-    for (::std::size_t i = 0; i < max; ++i) {
-      bool found{false};
-      for (const auto& item : args_) {
-        if (item.position_ == i) {
-          found = true;
-          break;
-        }
-      }
-      if (not found) {
-        _throw_format_error("All positions must be used.");
-      }
+    } else {
+      str.append(::std::to_string(val_));
     }
   }
 
-  ::std::string_view fmt_;
-  ArgType args_{};
+ private:
+  Type val_;
 };
-
-template <typename... ArgsType>
-constexpr auto estimate_space(const FormatArgs<ArgsType...> args)
-    -> ::std::size_t {
-  return args.estimate_size();
-}
 
 template <typename Type>
 constexpr inline auto make_appendable(const Type& val) -> BasicAppendable* {
@@ -546,102 +466,218 @@ constexpr inline auto map_args(
   return args;
 }
 
-class Formatter {
+template <typename Char, typename... ArgsType>
+class FormatStringImpl {
+  static constexpr auto Arity = parameter_pack_arity<ArgsType...>();
+  using ArgType = ::std::array<FormatSpecifier, Arity * 3>;
+
  public:
-  constexpr explicit Formatter(const ::std::string_view fmt) : fmt_{fmt} {}
+  template <class Type>
+    requires ::std::convertible_to<const Type&, ::std::basic_string_view<Char>>
+  consteval FormatStringImpl(const Type& fmt) : fmt_{fmt} {  // NOLINT
+    verify_arg_count();
+  }
+  constexpr FormatStringImpl() = default;
+  constexpr ~FormatStringImpl() = default;
 
-  template <typename... Args>
-  inline auto operator()(const FormatArgs<Args...>& args) -> ::std::string {
-    ::std::string out{};
-    out.reserve(args.estimate_size() + fmt_.length());
+  constexpr inline auto get_fmt() const noexcept
+      -> ::std::basic_string_view<Char> {
+    return fmt_;
+  }
 
-    auto mapped_args{map_args<Args...>(args)};
-    size_t index{0};
+  constexpr inline auto operator+=(const ::std::size_t offset) noexcept
+      -> FormatStringImpl& {
+    fmt_ = fmt_.substr(offset);
+    return *this;
+  }
 
-    while (not is_done()) {
-      // auto span{next_span()};
-      // out.append(span);
+  constexpr inline auto creep(const ::std::size_t offset) noexcept -> void {
+    fmt_ = fmt_.substr(offset);
+  }
 
-      // if (not is_done()) {
-      //   mapped_args.at(index++)->append(out);
-      // } else {
-      //   break;
-      // }
-      switch (state) {
-        case State::Top: {
-          if (fmt_.at(0) == '{') {
-            state = State::ArgParse;
-          } else {
-            auto span{next_span()};
-            out.append(span);
-          }
-          break;
-        }
-        case State::ArgParse: {
-          mapped_args.at(index++)->append(out);
-          auto end{fmt_.find_first_of('}')};
-          if (end == ::std::string_view::npos) {
-            throw ::std::runtime_error("Missing closing brace");
-          }
-          fmt_ = fmt_.substr(end + 1);
-          state = State::Top;
+  constexpr inline auto length() const noexcept -> ::std::size_t {
+    return fmt_.length();
+  }
+  constexpr inline auto empty() const noexcept -> bool { return fmt_.empty(); }
+  constexpr inline auto front() const noexcept -> const char& {
+    return fmt_.front();
+  }
+  constexpr inline auto back() const noexcept -> const char& {
+    return fmt_.back();
+  }
+  constexpr inline auto at(const ::std::size_t index) const noexcept -> const
+      char& {
+    return fmt_.at(index);
+  }
+  constexpr inline auto operator[](const ::std::size_t index) const noexcept
+      -> const char& {
+    return fmt_[index];
+  }
+  template <typename Type>
+  constexpr inline auto find_first_of(const Type c) const noexcept
+      -> ::std::size_t {
+    return fmt_.find_first_of(c);
+  }
+  template <typename Type>
+  constexpr inline auto find_last_of(const Type c) const noexcept
+      -> ::std::size_t {
+    return fmt_.find_last_of(c);
+  }
+  constexpr inline auto substr(
+      const ::std::size_t offset,
+      ::std::size_t count = ::std::basic_string_view<Char>::npos) const noexcept
+      -> ::std::basic_string_view<Char> {
+    return fmt_.substr(offset, count);
+  }
+
+  // NOLINTBEGIN
+  operator ::std::basic_string_view<Char>() const noexcept { return fmt_; }
+  // NOLINTEND
+
+  constexpr inline auto verify_arg_count() -> void {
+    ArgType args{};
+    [[maybe_unused]] auto count{count_format_args(args)};
+
+    auto max{::std::accumulate(
+        args.begin(), args.end(), 0ULL,
+        [](auto a, auto b) { return a > b.position_ ? a : b.position_; })};
+
+    if (count < Arity or max >= Arity) {
+      _throw_format_error("Too few arguments");
+    }
+
+    for (const auto& item : args) {
+      if (item.position_ > max or item.position_ >= Arity) {
+        _throw_format_error("Not enough arguments");
+      }
+    }
+    for (::std::size_t i = 0; i < max; ++i) {
+      bool found{false};
+      for (const auto& item : args) {
+        if (item.position_ == i) {
+          found = true;
           break;
         }
       }
+      if (not found) {
+        _throw_format_error("All positions must be used.");
+      }
     }
-
-    for (auto& arg : mapped_args) {
-      delete arg;
-    }
-
-    return out;
   }
 
-  constexpr inline auto next_span() noexcept -> ::std::string_view {
-    auto begin{fmt_.find_first_of('{')};
+  constexpr inline auto count_format_args(ArgType& args) -> ::std::size_t {
+    constexpr auto npos{::std::basic_string_view<Char>::npos};  // NOLINT
 
-    if (begin == ::std::string_view::npos) {
-      return fmt_;
+    const char* current{fmt_.data()};
+    const char* const end{fmt_.data() + fmt_.length()};
+
+    ::std::size_t count{0};
+
+    while (current not_eq end) {
+      auto left{
+          ::std::basic_string_view<Char>{current, end}.find_first_of('{')};
+      if (left not_eq npos) {
+        auto right{
+            ::std::basic_string_view<Char>{current, end}.find_first_of('}')};
+        if (right == npos) {
+          _throw_format_error("Missing closing brace");
+        }
+        ::std::basic_string_view<Char> format_specifier_str{current + left + 1,
+                                                            right - left - 1};
+        FormatSpecifier specifier{format_specifier_str};
+        if (not specifier.has_position_) {
+          specifier.position_ = count;
+          specifier.has_position_ = true;
+        }
+        args.at(count++) = specifier;
+
+        current += right + 1;
+      } else {
+        current = end;
+      }
     }
-    ::std::string_view next{fmt_.substr(0, begin)};
-    fmt_ = fmt_.substr(begin);
-
-    return next;
-  }
-
-  constexpr inline auto is_done() const noexcept -> bool {
-    return fmt_.empty();
+    return count;
   }
 
  private:
-  ::std::string_view fmt_;
-  enum class State { Top, ArgParse } state = State::Top;
+  ::std::basic_string_view<Char> fmt_;
+};
+template <typename... ArgsType>
+using FormatString =
+    FormatStringImpl<char, ::std::type_identity_t<ArgsType>...>;
+
+template <typename... ArgsType>
+class MappedArgs {
+ public:
+  static constexpr auto Arity = parameter_pack_arity<ArgsType...>();
+  constexpr explicit MappedArgs(const FormatArgs<ArgsType...>& args)
+      : args_{map_args<ArgsType...>(args)} {}
+  constexpr MappedArgs() = default;
+  constexpr ~MappedArgs() {
+    for (auto& arg : args_) {
+      delete arg;
+    }
+  }
+
+  constexpr inline auto at(const ::std::size_t index) const noexcept
+      -> const BasicAppendable* const& {
+    return args_.at(index);
+  }
+  constexpr inline auto at(const ::std::size_t index) noexcept
+      -> BasicAppendable*& {
+    return args_.at(index);
+  }
+
+ private:
+  ::std::array<BasicAppendable*, Arity> args_;
 };
 
 template <typename... ArgsType>
-constexpr inline auto verify_arg_count(
-    const ::std::string_view fmt,
-    [[maybe_unused]] const FormatArgs<ArgsType...>& args) -> void {
-  constexpr ::std::size_t ParamCount{parameter_pack_arity<ArgsType...>()};
-  ::std::size_t arg_count{count_placeholders(fmt)};
+constexpr inline auto _format_impl(FormatString<ArgsType...>& fmt,
+                                   MappedArgs<ArgsType...>& args,
+                                   ::std::string& out,
+                                   const ::size_t index = 0) -> void {
+  if (fmt.empty()) {
+    return;
+  }
+  const auto left{fmt.find_first_of('{')};
+  if (left == ::std::string_view::npos) {
+    out.append(fmt.get_fmt());
+    return;
+  }
+  const auto right{fmt.find_first_of('}')};
+  if (right == ::std::string_view::npos) {
+    _throw_format_error("Missing closing brace");
+  }
+  const ::std::string_view format_specifier_str{
+      fmt.substr(left + 1, right - left - 1)};
+  FormatSpecifier specifier{format_specifier_str};
+  if (not specifier.has_position_) {
+    specifier.position_ = index;
+  }
+  out.append(fmt.substr(0, left));
+  args.at(specifier.position_)->append(out, specifier);
+  // fmt += right + 1;
+  fmt.creep(right + 1);
 
-  // TODO : FIX THIS
-  // if (arg_count not_eq ParamCount) {
-  //   throw ::std::runtime_error("Incorrect number of arguments");
-  // }
+  _format_impl(fmt, args, out, index + 1);
 }
 
 template <typename... ArgsType>
-constexpr auto format(const ::std::string_view fmt,
-                      ArgsType... args_pack) -> ::std::string {
+[[nodiscard]] constexpr auto format(FormatString<ArgsType...> fmt,
+                                    ArgsType&&... args_pack) -> ::std::string {
   const FormatArgs<ArgsType...> args{::std::forward<ArgsType>(args_pack)...};
-  constexpr ::std::size_t ParamCount{parameter_pack_arity<ArgsType...>()};
 
-  verify_arg_count(fmt, args);
+  ::std::string out{};
+  out.reserve(args.estimate_size() + fmt.length());
 
-  return Formatter{fmt}(args);
+  MappedArgs<ArgsType...> mapped_args{args};
+
+  _format_impl(fmt, mapped_args, out);
+
+  return out;
 }
 
-}  // namespace format
+}  // namespace fmt
 
 #endif  // FORMAT_FORMAT_HPP_
