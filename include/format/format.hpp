@@ -2,6 +2,7 @@
 #define FORMAT_FORMAT_HPP_
 
 #include <array>
+#include <concepts>
 #include <cstdint>
 #include <numeric>
 #include <stdexcept>
@@ -39,6 +40,38 @@ constexpr inline auto is_digit(const char c) -> bool {
 static constexpr const char* const HexDigits{"0123456789ABCDEF"};
 template <typename Type>
 auto to_hex(Type n, size_t hex_len = sizeof(Type) << 1) -> ::std::string {
+  std::string result(hex_len, '0');
+  for (size_t i = 0, j = (hex_len - 1) * 4; i < hex_len; ++i, j -= 4) {
+    result[i] = HexDigits[(n >> j) & 0x0f];
+  }
+  return result;
+}
+template <typename Type>
+auto to_octal(Type n, size_t hex_len = sizeof(Type) << 1) -> ::std::string {
+  std::string result(hex_len, '0');
+  for (size_t i = 0, j = (hex_len - 1) * 4; i < hex_len; ++i, j -= 4) {
+    result[i] = HexDigits[(n >> j) & 0x0f];
+  }
+  return result;
+}
+template <typename Type>
+auto to_binary(Type n, size_t hex_len = sizeof(Type) << 1) -> ::std::string {
+  std::string result(hex_len, '0');
+  for (size_t i = 0, j = (hex_len - 1) * 4; i < hex_len; ++i, j -= 4) {
+    result[i] = HexDigits[(n >> j) & 0x0f];
+  }
+  return result;
+}
+template <typename Type>
+auto to_decimal(Type n, size_t hex_len = sizeof(Type) << 1) -> ::std::string {
+  std::string result(hex_len, '0');
+  for (size_t i = 0, j = (hex_len - 1) * 4; i < hex_len; ++i, j -= 4) {
+    result[i] = HexDigits[(n >> j) & 0x0f];
+  }
+  return result;
+}
+template <typename Type>
+auto to_float(Type n, size_t hex_len = sizeof(Type) << 1) -> ::std::string {
   std::string result(hex_len, '0');
   for (size_t i = 0, j = (hex_len - 1) * 4; i < hex_len; ++i, j -= 4) {
     result[i] = HexDigits[(n >> j) & 0x0f];
@@ -168,6 +201,25 @@ class FormatSpecifier {
 
   constexpr explicit FormatSpecifier(const ::std::string_view fmt) {
     parse_specifier(fmt);
+  }
+
+  constexpr inline auto is_hex() const noexcept -> bool {
+    return specifiers_ & FormatSpecifier::Hex;
+  }
+  constexpr inline auto is_octal() const noexcept -> bool {
+    return specifiers_ & FormatSpecifier::Octal;
+  }
+  constexpr inline auto is_binary() const noexcept -> bool {
+    return specifiers_ & FormatSpecifier::Binary;
+  }
+  constexpr inline auto is_float() const noexcept -> bool {
+    return specifiers_ & FormatSpecifier::Float;
+  }
+  constexpr inline auto is_char() const noexcept -> bool {
+    return specifiers_ & FormatSpecifier::Char;
+  }
+  constexpr inline auto is_pointer() const noexcept -> bool {
+    return specifiers_ & FormatSpecifier::Pointer;
   }
 
   /// @brief Default constructor so an array can be created without needing to
@@ -343,7 +395,7 @@ constexpr inline bool IsAnyOfImpl = false;
 
 template <typename Type, typename... Args>
 constexpr inline bool IsAnyOfImpl<Type, TypeList<Args...>> =
-    (::std::is_same_v<Type, Args> or ...);
+    (::std::is_same<Type, Args>::value or ...);  // NOLINT
 
 template <typename Type, typename List>
 concept IsAnyOf = IsAnyOfImpl<Type, List>;
@@ -379,7 +431,90 @@ class BasicAppendable {
 };
 
 template <typename Type>
-class Appendable;
+struct Print;
+template <>
+struct Print<::std::string_view> {
+  static constexpr auto buf_print(::std::string& str,
+                                  const ::std::string_view val,
+                                  const FormatSpecifier& specifiers) -> void {
+    (void)specifiers;
+    str.append(val);
+  }
+};
+template <>
+struct Print<const char*> {
+  static constexpr auto buf_print(::std::string& str, const char* const val,
+                                  const FormatSpecifier& specifiers) -> void {
+    (void)specifiers;
+    str.append(val);
+  }
+};
+template <>
+struct Print<::std::string> {
+  static constexpr auto buf_print(::std::string& str, const ::std::string& val,
+                                  const FormatSpecifier& specifiers) -> void {
+    (void)specifiers;
+    str.append(val);
+  }
+};
+template <IsIntegerNoChar Type>
+struct Print<Type> {
+  static constexpr auto buf_print(::std::string& str, Type val,
+                                  const FormatSpecifier& specifiers) -> void {
+    (void)specifiers;
+    if (specifiers.is_hex()) {
+      str.append(detail::to_hex(val));
+    } else if (specifiers.is_octal()) {
+      str.append(detail::to_octal(val));
+    } else if (specifiers.is_binary()) {
+      str.append(detail::to_binary(val));
+    } else {
+      str.append(detail::to_decimal(val));
+    }
+  }
+};
+template <IsFloat Type>
+struct Print<Type> {
+  static constexpr auto buf_print(::std::string& str, Type val,
+                                  const FormatSpecifier& specifiers) -> void {
+    (void)specifiers;
+    str.append(detail::to_float(val));
+  }
+};
+template <>
+struct Print<char> {
+  static constexpr auto buf_print(::std::string& str, const char val,
+                                  const FormatSpecifier& specifiers) -> void {
+    (void)specifiers;
+    if (specifiers.is_char()) {
+      str.push_back(val);
+    } else {
+      Print<int>::buf_print(str, val, specifiers);
+    }
+  }
+};
+template <typename Type>
+constexpr inline auto buf_print(::std::string& str, const Type& val,
+                                const FormatSpecifier& specifiers) -> void {
+  Print<Type>::buf_print(str, val, specifiers);
+}
+
+template <typename Type>
+class Appendable : public BasicAppendable {
+ public:
+  constexpr explicit Appendable(const Type& val) : val_(&val) {}
+  constexpr Appendable() = default;
+  constexpr ~Appendable() override = default;
+  constexpr void append(
+      ::std::string& str,
+      [[maybe_unused]] const FormatSpecifier& specifier) const override {
+    // str.append(val_);
+    buf_print(str, val_, specifier);
+  }
+
+ private:
+  const Type* val_;
+};
 
 template <>
 class Appendable<const char*> : public BasicAppendable {
@@ -390,7 +525,8 @@ class Appendable<const char*> : public BasicAppendable {
   constexpr void append(
       ::std::string& str,
       [[maybe_unused]] const FormatSpecifier& specifier) const override {
-    str.append(val_);
+    // str.append(val_);
+    buf_print(str, val_, specifier);
   }
 
  private:
@@ -405,7 +541,7 @@ class Appendable<::std::string> : public BasicAppendable {
   constexpr void append(
       ::std::string& str,
       [[maybe_unused]] const FormatSpecifier& specifier) const override {
-    str.append(*val_);
+    buf_print(str, *val_, specifier);
   }
 
  private:
@@ -430,6 +566,22 @@ class Appendable<Type> : public BasicAppendable {
     } else {
       str.append(::std::to_string(val_));
     }
+  }
+
+ private:
+  Type val_;
+};
+
+template <IsFloat Type>
+class Appendable<Type> : public BasicAppendable {
+ public:
+  constexpr explicit Appendable(Type val) : val_(val) {}
+  constexpr Appendable() = default;
+  constexpr ~Appendable() override = default;
+  constexpr void append(
+      ::std::string& str,
+      [[maybe_unused]] const FormatSpecifier& specifier) const override {
+    buf_print(str, val_, specifier);
   }
 
  private:
@@ -467,14 +619,15 @@ constexpr inline auto map_args(
   return args;
 }
 
-template <typename Char, typename... ArgsType>
+template <typename MyChar, typename... ArgsType>
 class FormatStringImpl {
   static constexpr auto Arity = parameter_pack_arity<ArgsType...>();
   using ArgType = ::std::array<FormatSpecifier, Arity * 3>;
 
  public:
   template <class Type>
-    requires ::std::convertible_to<const Type&, ::std::basic_string_view<Char>>
+    requires ::std::convertible_to<const Type&,
+                                   ::std::basic_string_view<MyChar>>
   consteval FormatStringImpl(const Type& fmt) : fmt_{fmt} {  // NOLINT
     verify_arg_count();
   }
@@ -482,7 +635,7 @@ class FormatStringImpl {
   constexpr ~FormatStringImpl() = default;
 
   constexpr inline auto get_fmt() const noexcept
-      -> ::std::basic_string_view<Char> {
+      -> ::std::basic_string_view<MyChar> {
     return fmt_;
   }
 
@@ -500,18 +653,18 @@ class FormatStringImpl {
     return fmt_.length();
   }
   constexpr inline auto empty() const noexcept -> bool { return fmt_.empty(); }
-  constexpr inline auto front() const noexcept -> const char& {
+  constexpr inline auto front() const noexcept -> const MyChar& {
     return fmt_.front();
   }
-  constexpr inline auto back() const noexcept -> const char& {
+  constexpr inline auto back() const noexcept -> const MyChar& {
     return fmt_.back();
   }
-  constexpr inline auto at(const ::std::size_t index) const noexcept -> const
-      char& {
+  constexpr inline auto at(const ::std::size_t index) const noexcept
+      -> const MyChar& {
     return fmt_.at(index);
   }
   constexpr inline auto operator[](const ::std::size_t index) const noexcept
-      -> const char& {
+      -> const MyChar& {
     return fmt_[index];
   }
   template <typename Type>
@@ -526,13 +679,13 @@ class FormatStringImpl {
   }
   constexpr inline auto substr(
       const ::std::size_t offset,
-      ::std::size_t count = ::std::basic_string_view<Char>::npos) const noexcept
-      -> ::std::basic_string_view<Char> {
+      ::std::size_t count = ::std::basic_string_view<MyChar>::npos)
+      const noexcept -> ::std::basic_string_view<MyChar> {
     return fmt_.substr(offset, count);
   }
 
   // NOLINTBEGIN
-  operator ::std::basic_string_view<Char>() const noexcept { return fmt_; }
+  operator ::std::basic_string_view<MyChar>() const noexcept { return fmt_; }
   // NOLINTEND
 
   constexpr inline auto verify_arg_count() -> void {
@@ -567,24 +720,24 @@ class FormatStringImpl {
   }
 
   constexpr inline auto count_format_args(ArgType& args) -> ::std::size_t {
-    constexpr auto npos{::std::basic_string_view<Char>::npos};  // NOLINT
+    constexpr auto npos{::std::basic_string_view<MyChar>::npos};  // NOLINT
 
-    const char* current{fmt_.data()};
-    const char* const end{fmt_.data() + fmt_.length()};
+    const MyChar* current{fmt_.data()};
+    const MyChar* const end{fmt_.data() + fmt_.length()};
 
     ::std::size_t count{0};
 
     while (current not_eq end) {
       auto left{
-          ::std::basic_string_view<Char>{current, end}.find_first_of('{')};
+          ::std::basic_string_view<MyChar>{current, end}.find_first_of('{')};
       if (left not_eq npos) {
         auto right{
-            ::std::basic_string_view<Char>{current, end}.find_first_of('}')};
+            ::std::basic_string_view<MyChar>{current, end}.find_first_of('}')};
         if (right == npos) {
           _throw_format_error("Missing closing brace");
         }
-        ::std::basic_string_view<Char> format_specifier_str{current + left + 1,
-                                                            right - left - 1};
+        ::std::basic_string_view<MyChar> format_specifier_str{
+            current + left + 1, right - left - 1};
         FormatSpecifier specifier{format_specifier_str};
         if (not specifier.has_position_) {
           specifier.position_ = count;
@@ -601,7 +754,7 @@ class FormatStringImpl {
   }
 
  private:
-  ::std::basic_string_view<Char> fmt_;
+  ::std::basic_string_view<MyChar> fmt_;
 };
 template <typename... ArgsType>
 using FormatString =
@@ -634,34 +787,36 @@ class MappedArgs {
 };
 
 template <typename... ArgsType>
-constexpr inline auto _format_impl(FormatString<ArgsType...>& fmt,
+constexpr inline auto _format_impl(FormatString<ArgsType...>& fmt_str,
                                    MappedArgs<ArgsType...>& args,
                                    ::std::string& out,
-                                   const ::size_t index = 0) -> void {
-  if (fmt.empty()) {
-    return;
-  }
-  const auto left{fmt.find_first_of('{')};
-  if (left == ::std::string_view::npos) {
-    out.append(fmt.get_fmt());
-    return;
-  }
-  const auto right{fmt.find_first_of('}')};
-  if (right == ::std::string_view::npos) {
-    _throw_format_error("Missing closing brace");
-  }
-  const ::std::string_view format_specifier_str{
-      fmt.substr(left + 1, right - left - 1)};
-  FormatSpecifier specifier{format_specifier_str};
-  if (not specifier.has_position_) {
-    specifier.position_ = index;
-  }
-  out.append(fmt.substr(0, left));
-  args.at(specifier.position_)->append(out, specifier);
-  // fmt += right + 1;
-  fmt.creep(right + 1);
+                                   ::size_t index = 0) -> void {
+  ::std::string_view fmt{fmt_str};
+  while (not fmt.empty()) {
+    const auto left{fmt.find_first_of('{')};
+    if (left == ::std::string_view::npos) {
+      out.append(fmt);
+      return;
+    }
+    const auto right{fmt.find_first_of('}')};
+    if (right == ::std::string_view::npos) {
+      _throw_format_error("Missing closing brace");
+    }
+    const ::std::string_view format_specifier_str{
+        fmt.substr(left + 1, right - left - 1)};
+    FormatSpecifier specifier{format_specifier_str};
+    if (not specifier.has_position_) {
+      specifier.position_ = index;
+    }
+    out.append(fmt.substr(0, left));
+    args.at(specifier.position_)->append(out, specifier);
+    // fmt += right + 1;
+    fmt = fmt.substr(right + 1);
 
-  _format_impl(fmt, args, out, index + 1);
+    ++index;
+  }
+
+  // _format_impl(fmt, args, out, index + 1);
 }
 
 template <typename... ArgsType>
