@@ -21,7 +21,7 @@ class Formatter<Foo> {
 auto main() -> int try {
   Foo foo{42};
   const char* foo_ptr{"foo"};
-  const auto s = fmt::format("Hello, {}!", "world");
+  const auto s = fmt::format("Hello, {}!", foo);
   std::cout << s << '\n';
 } catch (const std::exception& e) {
   std::cerr << e.what() << '\n';

@@ -159,20 +159,20 @@ template <size_t Index = 0, typename... ArgsType>
   requires(Index >= parameter_pack_arity<ArgsType...>())
 constexpr inline auto array_fill(
     std::array<BasicAppendable*, parameter_pack_arity<ArgsType...>()>& arr,
-    const FormatArgs<ArgsType...>& args) noexcept -> void {}
+    const FormatArgs<const ArgsType*...>& args) noexcept -> void {}
 
 template <size_t Index = 0, typename... ArgsType>
   requires(Index < parameter_pack_arity<ArgsType...>())
 constexpr inline auto array_fill(
     std::array<BasicAppendable*, parameter_pack_arity<ArgsType...>()>& arr,
-    const FormatArgs<ArgsType...>& args) noexcept -> void {
-  arr[Index] = make_appendable(::std::get<Index>(args));
+    const FormatArgs<const ArgsType*...>& args) noexcept -> void {
+  arr[Index] = make_appendable(*::std::get<Index>(args));
   array_fill<Index + 1, ArgsType...>(arr, args);
 }
 
 template <typename... ArgsType>
 constexpr inline auto map_args(
-    const FormatArgs<ArgsType...>& format_args) noexcept
+    const FormatArgs<const ArgsType*...>& format_args) noexcept
     -> ::std::array<BasicAppendable*, parameter_pack_arity<ArgsType...>()> {
   ::std::array<BasicAppendable*, parameter_pack_arity<ArgsType...>()> args{};
 
@@ -326,7 +326,7 @@ template <typename... ArgsType>
 class MappedArgs {
  public:
   static constexpr auto Arity = parameter_pack_arity<ArgsType...>();
-  constexpr explicit MappedArgs(const FormatArgs<ArgsType...>& args)
+  constexpr explicit MappedArgs(const FormatArgs<const ArgsType*...>& args)
       : args_{map_args<ArgsType...>(args)} {}
   constexpr MappedArgs() = default;
   constexpr ~MappedArgs() {
@@ -383,8 +383,10 @@ constexpr inline auto _format_impl(FormatString<ArgsType...>& fmt_str,
 
 template <typename... ArgsType>
 [[nodiscard]] constexpr auto format(FormatString<ArgsType...> fmt,
-                                    ArgsType... args_pack) -> ::std::string {
-  const FormatArgs<ArgsType...> args{::std::forward<ArgsType>(args_pack)...};
+                                    const ArgsType&... args_pack)
+    -> ::std::string {
+  const FormatArgs<const ArgsType*...> args{
+      ::std::forward<const ArgsType*>(&args_pack)...};
 
   ::std::string out{};
   out.reserve(args.estimate_size() + fmt.length());
