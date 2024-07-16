@@ -5,8 +5,6 @@
 #include <numeric>
 #include <type_traits>
 
-#include "format/concept.hpp"
-#include "format/detail.hpp"
 #include "format/exception.hpp"
 #include "format/formatter.hpp"
 #include "format/param.hpp"
@@ -34,7 +32,7 @@ concept BufPrint =
     };
 
 template <BufPrint Type>
-class Appendable : public BasicAppendable {};
+class Appendable;
 
 template <BufPrint Type>
   requires(::std::is_trivially_copyable_v<Type>)
@@ -102,47 +100,47 @@ class Appendable<::std::string> : public BasicAppendable {
   const ::std::string* val_;
 };
 
-template <BufPrint Type>
-  requires(IsIntegerNoChar<Type>)
-class Appendable<Type> : public BasicAppendable {
- public:
-  constexpr explicit Appendable(Type val) : val_(val) {}
-  constexpr Appendable() = default;
-  constexpr ~Appendable() override = default;
-  constexpr void append(
-      ::std::string& str,
-      [[maybe_unused]] const FormatSpecifier& specifier) const override {
-    if (specifier.specifiers_ & FormatSpecifier::Hex) {
-      if (specifier.has_size_) {
-        str.append(detail::to_hex(val_, specifier.size_));
-      } else {
-        str.append(detail::to_hex(val_));
-      }
-    } else {
-      str.append(::std::to_string(val_));
-    }
-  }
+// template <BufPrint Type>
+//   requires(IsIntegerNoChar<Type>)
+// class Appendable<Type> : public BasicAppendable {
+//  public:
+//   constexpr explicit Appendable(Type val) : val_(val) {}
+//   constexpr Appendable() = default;
+//   constexpr ~Appendable() override = default;
+//   constexpr void append(
+//       ::std::string& str,
+//       [[maybe_unused]] const FormatSpecifier& specifier) const override {
+//     if (specifier.is_hex()) {
+//       if (specifier.has_size_) {
+//         str.append(detail::to_hex(val_, specifier.size_));
+//       } else {
+//         str.append(detail::to_hex(val_));
+//       }
+//     } else {
+//       str.append(::std::to_string(val_));
+//     }
+//   }
 
- private:
-  Type val_;
-};
+//  private:
+//   Type val_;
+// };
 
-template <BufPrint Type>
-  requires(IsFloat<Type>)
-class Appendable<Type> : public BasicAppendable {
- public:
-  constexpr explicit Appendable(Type val) : val_(val) {}
-  constexpr Appendable() = default;
-  constexpr ~Appendable() override = default;
-  constexpr void append(
-      ::std::string& str,
-      [[maybe_unused]] const FormatSpecifier& specifier) const override {
-    buf_print(str, val_, specifier);
-  }
+// template <BufPrint Type>
+//   requires(IsFloat<Type>)
+// class Appendable<Type> : public BasicAppendable {
+//  public:
+//   constexpr explicit Appendable(Type val) : val_(val) {}
+//   constexpr Appendable() = default;
+//   constexpr ~Appendable() override = default;
+//   constexpr void append(
+//       ::std::string& str,
+//       [[maybe_unused]] const FormatSpecifier& specifier) const override {
+//     buf_print(str, val_, specifier);
+//   }
 
- private:
-  Type val_;
-};
+//  private:
+//   Type val_;
+// };
 
 template <typename Type>
   requires(::std::is_trivially_copyable_v<Type>)

@@ -10,8 +10,9 @@
 namespace fmt {
 class FormatSpecifier {
  public:
-  static constexpr size_t Hex{1 << 0}, Octal{1 << 1}, Binary{1 << 2},
-      Float{1 << 3}, Char{1 << 4}, Pointer{1 << 5};
+  static constexpr size_t HexMask{1 << 0}, OctalMask{1 << 1},
+      BinaryMask{1 << 2}, FloatMask{1 << 3}, CharMask{1 << 4},
+      PointerMask{1 << 5};
 
   constexpr explicit FormatSpecifier(size_t position, size_t specifiers = 0ULL)
       : position_{position}, specifiers_{specifiers} {}
@@ -21,22 +22,22 @@ class FormatSpecifier {
   }
 
   constexpr inline auto is_hex() const noexcept -> bool {
-    return specifiers_ & FormatSpecifier::Hex;
+    return specifiers_ & FormatSpecifier::HexMask;
   }
   constexpr inline auto is_octal() const noexcept -> bool {
-    return specifiers_ & FormatSpecifier::Octal;
+    return specifiers_ & FormatSpecifier::OctalMask;
   }
   constexpr inline auto is_binary() const noexcept -> bool {
-    return specifiers_ & FormatSpecifier::Binary;
+    return specifiers_ & FormatSpecifier::BinaryMask;
   }
   constexpr inline auto is_float() const noexcept -> bool {
-    return specifiers_ & FormatSpecifier::Float;
+    return specifiers_ & FormatSpecifier::FloatMask;
   }
   constexpr inline auto is_char() const noexcept -> bool {
-    return specifiers_ & FormatSpecifier::Char;
+    return specifiers_ & FormatSpecifier::CharMask;
   }
   constexpr inline auto is_pointer() const noexcept -> bool {
-    return specifiers_ & FormatSpecifier::Pointer;
+    return specifiers_ & FormatSpecifier::PointerMask;
   }
 
   /// @brief Default constructor so an array can be created without needing to
@@ -142,32 +143,32 @@ class FormatSpecifier {
         }
         case 'X':
         case 'x': {
-          specifiers_ |= FormatSpecifier::Hex;
+          specifiers_ |= FormatSpecifier::HexMask;
           break;
         }
         case 'O':
         case 'o': {
-          specifiers_ |= FormatSpecifier::Octal;
+          specifiers_ |= FormatSpecifier::OctalMask;
           break;
         }
         case 'B':
         case 'b': {
-          specifiers_ |= FormatSpecifier::Binary;
+          specifiers_ |= FormatSpecifier::BinaryMask;
           break;
         }
         case 'F':
         case 'f': {
-          specifiers_ |= FormatSpecifier::Float;
+          specifiers_ |= FormatSpecifier::FloatMask;
           break;
         }
         case 'C':
         case 'c': {
-          specifiers_ |= FormatSpecifier::Char;
+          specifiers_ |= FormatSpecifier::CharMask;
           break;
         }
         case 'P':
         case 'p': {
-          specifiers_ |= FormatSpecifier::Pointer;
+          specifiers_ |= FormatSpecifier::PointerMask;
           break;
         }
       }

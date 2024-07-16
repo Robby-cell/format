@@ -47,18 +47,22 @@ concept IsAnyOf = IsAnyOfImpl<Type, List>;
 template <typename Type>
 concept IsUnsignedInteger =
     requires(Type) { requires(IsAnyOf<Type, UnsignedIntType>); };
+
 template <typename Type>
 concept IsUnsignedIntegerNoChar =
     requires(Type) { requires(IsAnyOf<Type, UnsignedIntNoCharType>); };
+
 template <typename Type>
 concept IsSignedInteger =
     requires(Type) { requires(IsAnyOf<Type, SignedIntType>); };
+
 template <typename Type>
 concept IsSignedIntegerNoChar =
     requires(Type) { requires(IsAnyOf<Type, SignedIntNoCharType>); };
 
 template <typename Type>
 concept IsInteger = IsSignedInteger<Type> or IsUnsignedInteger<Type>;
+
 template <typename Type>
 concept IsIntegerNoChar =
     IsSignedIntegerNoChar<Type> or IsUnsignedIntegerNoChar<Type>;

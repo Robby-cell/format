@@ -41,15 +41,15 @@ template <IsIntegerNoChar Type>
 struct Formatter<Type> {
   static constexpr auto buf_print(::std::string& str, Type val,
                                   const FormatSpecifier& specifiers) -> void {
-    (void)specifiers;
+    auto size{specifiers.has_size_ ? specifiers.size_ : 0};
     if (specifiers.is_hex()) {
-      str.append(detail::to_hex(val));
+      str.append(detail::to_hex(val, size));
     } else if (specifiers.is_octal()) {
-      str.append(detail::to_octal(val));
+      str.append(detail::to_octal(val, size));
     } else if (specifiers.is_binary()) {
-      str.append(detail::to_binary(val));
+      str.append(detail::to_binary(val, size));
     } else {
-      str.append(detail::to_decimal(val));
+      str.append(detail::to_decimal(val, size));
     }
   }
 };
