@@ -1,8 +1,8 @@
 #include <iostream>
-#include <xstring>
 
 #include "format/detail.hpp"
 #include "format/formatter.hpp"
+
 struct Foo {
   explicit Foo(int x) {}
 };
