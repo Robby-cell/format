@@ -1,8 +1,10 @@
 #include <iostream>
 
 #include "format/detail.hpp"
+#include "format/format.hpp"
 #include "format/formatter.hpp"
 #include "format/print.hpp"
+
 struct Foo {
   explicit Foo(int x) {}
 };
@@ -32,8 +34,6 @@ class Formatter<Point> {
   }
 };
 }  // namespace fmt
-
-#include "format/format.hpp"
 
 auto main() -> int try {
   Foo foo{42};
