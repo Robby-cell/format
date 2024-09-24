@@ -9,12 +9,7 @@ RELEASE_FLAGS = -DCMAKE_BUILD_TYPE=Release
 run: ${BIN}
 	./${BIN}
 
-wrun: ${BIN}.exe
-	.\${BIN}.exe
-
 ${BIN}: ${BUILD_DIR}/ debug
-
-${BIN}.exe: ${BUILD_DIR}/ debug
 
 debug: ${BUILD_DIR}/
 	cd ${BUILD_DIR} && \

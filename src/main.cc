@@ -1,5 +1,4 @@
 #include <iostream>
-#include <xstring>
 
 #include "format/detail.hpp"
 #include "format/formatter.hpp"
