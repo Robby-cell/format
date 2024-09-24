@@ -8,6 +8,7 @@
 #include "format/exception.hpp"
 #include "format/formatter.hpp"
 #include "format/param.hpp"
+#include "format/specifier.hpp"
 
 namespace fmt {
 
@@ -17,12 +18,23 @@ class BasicAppendable {
   virtual ~BasicAppendable() = default;
   virtual constexpr void append(::std::string& str,
                                 const FormatSpecifier& specifier) const = 0;
+  virtual void stream(std::ostream& os,
+                      const FormatSpecifier& specifier) const {
+    std::string str;
+    append(str, specifier);
+    os << str;
+  }
 };
 
 template <typename Type>
 constexpr inline auto buf_print(::std::string& str, const Type& val,
                                 const FormatSpecifier& specifiers) -> void {
   Formatter<Type>::buf_print(str, val, specifiers);
+}
+template <typename Type>
+constexpr inline auto buf_print(::std::ostream& os, const Type& val,
+                                const FormatSpecifier& specifiers) -> void {
+  Formatter<Type>::buf_print(os, val, specifiers);
 }
 
 template <typename Type>
