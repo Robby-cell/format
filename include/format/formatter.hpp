@@ -14,62 +14,67 @@ struct Formatter;
 
 template <>
 struct Formatter<::std::string_view> {
-  static constexpr auto buf_print(::std::string& str,
-                                  const ::std::string_view val,
+  template <class Os>
+  static constexpr auto buf_print(Os& os, const ::std::string_view val,
                                   const FormatSpecifier& specifiers) -> void {
     (void)specifiers;
-    str.append(val);
+    os << val;
   }
 };
 template <>
 struct Formatter<const char*> {
-  static constexpr auto buf_print(::std::string& str, const char* const val,
+  template <class Os>
+  static constexpr auto buf_print(Os& os, const char* const val,
                                   const FormatSpecifier& specifiers) -> void {
     (void)specifiers;
-    str.append(val);
+    os << val;
   }
 };
 template <>
 struct Formatter<::std::string> {
-  static constexpr auto buf_print(::std::string& str, const ::std::string& val,
+  template <class Os>
+  static constexpr auto buf_print(Os& os, const ::std::string& val,
                                   const FormatSpecifier& specifiers) -> void {
     (void)specifiers;
-    str.append(val);
+    os << val;
   }
 };
 template <IsIntegerNoChar Type>
 struct Formatter<Type> {
-  static constexpr auto buf_print(::std::string& str, Type val,
+  template <class Os>
+  static constexpr auto buf_print(Os& os, Type val,
                                   const FormatSpecifier& specifiers) -> void {
     auto size{specifiers.has_size_ ? specifiers.size_ : 0};
     if (specifiers.is_hex()) {
-      str.append(detail::to_hex(val, size));
+      os << detail::to_hex(val, size);
     } else if (specifiers.is_octal()) {
-      str.append(detail::to_octal(val, size));
+      os << detail::to_octal(val, size);
     } else if (specifiers.is_binary()) {
-      str.append(detail::to_binary(val, size));
+      os << detail::to_binary(val, size);
     } else {
-      str.append(detail::to_decimal(val, size));
+      os << detail::to_decimal(val, size);
     }
   }
 };
 template <IsFloat Type>
 struct Formatter<Type> {
-  static constexpr auto buf_print(::std::string& str, Type val,
+  template <class Os>
+  static constexpr auto buf_print(Os& os, Type val,
                                   const FormatSpecifier& specifiers) -> void {
     (void)specifiers;
-    str.append(detail::to_float(val));
+    os << detail::to_float(val);
   }
 };
 template <>
 struct Formatter<char> {
-  static constexpr auto buf_print(::std::string& str, const char val,
+  template <class Os>
+  static constexpr auto buf_print(Os& os, const char val,
                                   const FormatSpecifier& specifiers) -> void {
     (void)specifiers;
     if (specifiers.is_char()) {
-      str.push_back(val);
+      os << val;
     } else {
-      Formatter<int>::buf_print(str, val, specifiers);
+      os << static_cast<int>(val);
     }
   }
 };

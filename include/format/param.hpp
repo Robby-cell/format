@@ -7,14 +7,9 @@
 
 namespace fmt {
 
-template <typename, typename... Args>
+template <typename... Args>
 struct CountParameterPack {
-  static constexpr ::std::size_t Value{1 + CountParameterPack<Args...>::Value};
-};
-
-template <typename Type>
-struct CountParameterPack<Type> {
-  static constexpr ::std::size_t Value{1};
+  static constexpr ::std::size_t Value{sizeof...(Args)};
 };
 
 template <typename... Args>

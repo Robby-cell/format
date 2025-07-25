@@ -2,8 +2,14 @@
 #define FORMAT_FORMAT_HPP_
 
 #include <array>
+#include <functional>
 #include <numeric>
+#include <ostream>
+#include <sstream>
+#include <string_view>
+#include <tuple>
 #include <type_traits>
+#include <utility>
 
 #include "format/exception.hpp"
 #include "format/formatter.hpp"
@@ -12,27 +18,8 @@
 
 namespace fmt {
 
-class BasicAppendable {
- public:
-  constexpr BasicAppendable() = default;
-  virtual ~BasicAppendable() = default;
-  virtual constexpr void append(::std::string& str,
-                                const FormatSpecifier& specifier) const = 0;
-  virtual void stream(std::ostream& os,
-                      const FormatSpecifier& specifier) const {
-    std::string str;
-    append(str, specifier);
-    os << str;
-  }
-};
-
-template <typename Type>
-constexpr inline auto buf_print(::std::string& str, const Type& val,
-                                const FormatSpecifier& specifiers) -> void {
-  Formatter<Type>::buf_print(str, val, specifiers);
-}
-template <typename Type>
-constexpr inline auto buf_print(::std::ostream& os, const Type& val,
+template <typename Type, class Char>
+constexpr inline auto buf_print(::std::basic_ostream<Char>& os, const Type& val,
                                 const FormatSpecifier& specifiers) -> void {
   Formatter<Type>::buf_print(os, val, specifiers);
 }
@@ -42,154 +29,6 @@ concept BufPrint =
     requires(std::string& str, Type val, const FormatSpecifier& specifier) {
       buf_print(str, val, specifier);
     };
-
-template <BufPrint Type>
-class Appendable;
-
-template <BufPrint Type>
-  requires(::std::is_trivially_copyable_v<Type>)
-class Appendable<Type> : public BasicAppendable {
- public:
-  constexpr explicit Appendable(const Type val) : val_(val) {}
-  constexpr Appendable() = default;
-  constexpr ~Appendable() override = default;
-  constexpr void append(
-      ::std::string& str,
-      [[maybe_unused]] const FormatSpecifier& specifier) const override {
-    buf_print(str, val_, specifier);
-  }
-
- private:
-  const Type val_;
-};
-
-template <BufPrint Type>
-  requires(not ::std::is_trivially_copyable_v<Type>)
-class Appendable<Type> : public BasicAppendable {
- public:
-  constexpr explicit Appendable(const Type& val) : val_(&val) {}
-  constexpr Appendable() = default;
-  constexpr ~Appendable() override = default;
-  constexpr void append(
-      ::std::string& str,
-      [[maybe_unused]] const FormatSpecifier& specifier) const override {
-    buf_print(str, *val_, specifier);
-  }
-
- private:
-  const Type* val_;
-};
-
-template <>
-class Appendable<const char*> : public BasicAppendable {
- public:
-  constexpr explicit Appendable(const char* val) : val_(val) {}
-  constexpr Appendable() = default;
-  constexpr ~Appendable() override = default;
-  constexpr void append(
-      ::std::string& str,
-      [[maybe_unused]] const FormatSpecifier& specifier) const override {
-    // str.append(val_);
-    buf_print(str, val_, specifier);
-  }
-
- private:
-  const char* val_;
-};
-template <>
-class Appendable<::std::string> : public BasicAppendable {
- public:
-  constexpr explicit Appendable(const ::std::string& val) : val_(&val) {}
-  constexpr Appendable() = default;
-  constexpr ~Appendable() override = default;
-  constexpr void append(
-      ::std::string& str,
-      [[maybe_unused]] const FormatSpecifier& specifier) const override {
-    buf_print(str, *val_, specifier);
-  }
-
- private:
-  const ::std::string* val_;
-};
-
-// template <BufPrint Type>
-//   requires(IsIntegerNoChar<Type>)
-// class Appendable<Type> : public BasicAppendable {
-//  public:
-//   constexpr explicit Appendable(Type val) : val_(val) {}
-//   constexpr Appendable() = default;
-//   constexpr ~Appendable() override = default;
-//   constexpr void append(
-//       ::std::string& str,
-//       [[maybe_unused]] const FormatSpecifier& specifier) const override {
-//     if (specifier.is_hex()) {
-//       if (specifier.has_size_) {
-//         str.append(detail::to_hex(val_, specifier.size_));
-//       } else {
-//         str.append(detail::to_hex(val_));
-//       }
-//     } else {
-//       str.append(::std::to_string(val_));
-//     }
-//   }
-
-//  private:
-//   Type val_;
-// };
-
-// template <BufPrint Type>
-//   requires(IsFloat<Type>)
-// class Appendable<Type> : public BasicAppendable {
-//  public:
-//   constexpr explicit Appendable(Type val) : val_(val) {}
-//   constexpr Appendable() = default;
-//   constexpr ~Appendable() override = default;
-//   constexpr void append(
-//       ::std::string& str,
-//       [[maybe_unused]] const FormatSpecifier& specifier) const override {
-//     buf_print(str, val_, specifier);
-//   }
-
-//  private:
-//   Type val_;
-// };
-
-template <typename Type>
-  requires(::std::is_trivially_copyable_v<Type>)
-constexpr inline auto make_appendable(const Type val) -> BasicAppendable* {
-  return new (::std::nothrow) Appendable<Type>(val);
-}
-template <typename Type>
-  requires(not ::std::is_trivially_copyable_v<Type>)
-constexpr inline auto make_appendable(const Type& val) -> BasicAppendable* {
-  return new (::std::nothrow) Appendable<Type>(val);
-}
-
-template <size_t Index = 0, typename... ArgsType>
-  requires(Index >= parameter_pack_arity<ArgsType...>())
-constexpr inline auto array_fill(
-    std::array<BasicAppendable*, parameter_pack_arity<ArgsType...>()>& arr,
-    const FormatArgs<const ArgsType*...>& args) noexcept -> void {}
-
-template <size_t Index = 0, typename... ArgsType>
-  requires(Index < parameter_pack_arity<ArgsType...>())
-constexpr inline auto array_fill(
-    std::array<BasicAppendable*, parameter_pack_arity<ArgsType...>()>& arr,
-    const FormatArgs<const ArgsType*...>& args) noexcept -> void {
-  arr[Index] = make_appendable(*::std::get<Index>(args));
-  array_fill<Index + 1, ArgsType...>(arr, args);
-}
-
-template <typename... ArgsType>
-constexpr inline auto map_args(
-    const FormatArgs<const ArgsType*...>& format_args) noexcept
-    -> ::std::array<BasicAppendable*, parameter_pack_arity<ArgsType...>()> {
-  ::std::array<BasicAppendable*, parameter_pack_arity<ArgsType...>()> args{};
-
-  array_fill<0>(args, format_args);
-
-  return args;
-}
 
 template <typename MyChar, typename... ArgsType>
 class FormatStringImpl {
@@ -336,38 +175,53 @@ template <typename... ArgsType>
 class MappedArgs {
  public:
   static constexpr auto Arity = parameter_pack_arity<ArgsType...>();
-  constexpr explicit MappedArgs(const FormatArgs<const ArgsType*...>& args)
-      : args_{map_args<ArgsType...>(args)} {}
-  constexpr MappedArgs() = default;
-  constexpr ~MappedArgs() {
-    for (auto& arg : args_) {
-      delete arg;
-    }
-  }
 
-  constexpr inline auto at(const ::std::size_t index) const noexcept
-      -> const BasicAppendable* const& {
-    return args_.at(index);
-  }
-  constexpr inline auto at(const ::std::size_t index) noexcept
-      -> BasicAppendable*& {
-    return args_.at(index);
+  constexpr explicit MappedArgs(const ArgsType&... args)
+      : args_(std::make_tuple(std::ref(args)...)) {}
+
+  constexpr MappedArgs() = default;
+
+  template <std::size_t I>
+  constexpr auto get() const& -> decltype(auto) {
+    return std::get<I>(args_);
   }
 
  private:
-  ::std::array<BasicAppendable*, Arity> args_;
+  std::tuple<std::reference_wrapper<const ArgsType>...> args_;
 };
 
-template <typename... ArgsType>
-constexpr inline auto _format_impl(FormatString<ArgsType...>& fmt_str,
-                                   MappedArgs<ArgsType...>& args,
-                                   ::std::string& out,
-                                   ::size_t index = 0) -> void {
+template <class Out, class... Args, std::size_t... Is>
+auto format_to(Out& os, FormatSpecifier specifier,
+               const MappedArgs<Args...>& args,
+               std::index_sequence<Is...> /**/) {
+  using Dummy = int[];
+  (void)Dummy{
+      ((specifier.position_ == Is
+            ? (buf_print(os, args.template get<Is>().get(), specifier), 0)
+            : 0))...};
+}
+
+template <class Out, class... Args>
+auto format_to(Out& os, FormatSpecifier specifier,
+               const MappedArgs<Args...>& args) {
+  format_to(os, specifier, args, std::make_index_sequence<sizeof...(Args)>());
+}
+
+template <class Out, class Char>
+auto format_to(Out& os, const std::basic_string_view<Char> str) {
+  os.write(str.data(), str.size());
+}
+
+template <class Char, typename... ArgsType>
+inline auto _format_impl(const FormatString<ArgsType...>& fmt_str,
+                         const MappedArgs<ArgsType...>& args,
+                         std::basic_ostream<Char>& out,
+                         ::size_t index = 0) -> void {
   ::std::string_view fmt{fmt_str};
   while (not fmt.empty()) {
     const auto left{fmt.find_first_of('{')};
     if (left == ::std::string_view::npos) {
-      out.append(fmt);
+      format_to(out, fmt);
       return;
     }
     const auto right{fmt.find_first_of('}')};
@@ -380,8 +234,9 @@ constexpr inline auto _format_impl(FormatString<ArgsType...>& fmt_str,
     if (not specifier.has_position_) {
       specifier.position_ = index;
     }
-    out.append(fmt.substr(0, left));
-    args.at(specifier.position_)->append(out, specifier);
+    format_to(out, fmt.substr(0, left));
+    format_to(out, specifier, args);
+
     // fmt += right + 1;
     fmt = fmt.substr(right + 1);
 
@@ -395,17 +250,12 @@ template <typename... ArgsType>
 [[nodiscard]] constexpr auto format(FormatString<ArgsType...> fmt,
                                     const ArgsType&... args_pack)
     -> ::std::string {
-  const FormatArgs<const ArgsType*...> args{
-      ::std::forward<const ArgsType*>(&args_pack)...};
+  ::std::stringstream out{};
+  const MappedArgs<ArgsType...> mapped_args{args_pack...};
 
-  ::std::string out{};
-  out.reserve(args.estimate_size() + fmt.length());
+  _format_impl<char>(fmt, mapped_args, out);
 
-  MappedArgs<ArgsType...> mapped_args{args};
-
-  _format_impl(fmt, mapped_args, out);
-
-  return out;
+  return out.str();
 }
 
 }  // namespace fmt

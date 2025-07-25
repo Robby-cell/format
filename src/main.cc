@@ -16,21 +16,23 @@ namespace fmt {
 template <>
 class Formatter<Foo> {
  public:
-  static void buf_print(std::string& str, [[maybe_unused]] const Foo& val,
+  template <class Os>
+  static void buf_print(Os& os, [[maybe_unused]] const Foo& val,
                         [[maybe_unused]] const FormatSpecifier& specifier) {
-    str.append("Foo");
+    os << "Foo";
   }
 };
 template <>
 class Formatter<Point> {
  public:
-  static void buf_print(std::string& str, [[maybe_unused]] const Point& val,
+  template <class Os>
+  static void buf_print(Os& os, [[maybe_unused]] const Point& val,
                         [[maybe_unused]] const FormatSpecifier& specifier) {
-    str.append("(");
-    str.append(detail::to_float(val.x));
-    str.append(", ");
-    str.append(detail::to_float(val.y));
-    str.append(")");
+    os << '(';
+    os << detail::to_float(val.x);
+    os << ", ";
+    os << detail::to_float(val.y);
+    os << ')';
   }
 };
 }  // namespace fmt
